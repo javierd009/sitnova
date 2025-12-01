@@ -88,6 +88,13 @@ class Settings(BaseSettings):
     ultravox_model: str = "fixie-ai/ultravox-v0_2"
 
     # ============================================
+    # ASTERSIPVOX (Bridge FreePBX <-> Ultravox)
+    # ============================================
+    astersipvox_url: str = "http://localhost:7070"  # URL del servidor AsterSIPVox
+    astersipvox_api_key: str = ""  # Bearer token para autenticacion
+    astersipvox_extension: str = "205"  # Extension del asistente virtual
+
+    # ============================================
     # VISIÓN ARTIFICIAL
     # ============================================
     yolo_model_path: str = "models/yolov8n.pt"

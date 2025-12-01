@@ -15,6 +15,10 @@ from src.services.voice.ultravox_client import (
     UltravoxClient,
     UltravoxCall,
 )
+from src.services.voice.astersipvox_client import (
+    get_astersipvox_client,
+    AsterSIPVoxClient,
+)
 from src.services.voice.webhook_handler import (
     get_active_sessions,
     get_session_transcript,
@@ -46,6 +50,25 @@ class CreateSIPCallRequest(BaseModel):
     password: Optional[str] = None
     visitor_plate: Optional[str] = None
     visitor_name: Optional[str] = None
+
+
+class OriginateCallRequest(BaseModel):
+    """Request para originar llamada via AsterSIPVox."""
+    destination: str  # Extension destino (ej: "1006")
+    visitor_plate: Optional[str] = None
+    visitor_name: Optional[str] = None
+    resident_name: Optional[str] = None
+    apartment: Optional[str] = None
+    custom_prompt: Optional[str] = None
+
+
+class OriginateCallResponse(BaseModel):
+    """Response de llamada originada."""
+    success: bool
+    destination: str
+    from_user: str
+    status: str
+    message: str
 
 
 class CreateCallResponse(BaseModel):
@@ -197,6 +220,72 @@ async def create_sip_call(
         raise HTTPException(
             status_code=500,
             detail=f"Error creando llamada SIP: {str(e)}"
+        )
+
+
+@router.post("/calls/originate", response_model=OriginateCallResponse)
+async def originate_call_astersipvox(
+    request: OriginateCallRequest,
+):
+    """
+    Origina una llamada desde el asistente virtual via AsterSIPVox.
+
+    Este es el endpoint principal para iniciar llamadas con el portero virtual.
+    AsterSIPVox actua como bridge entre FreePBX/Asterisk y Ultravox Voice AI.
+
+    Flujo:
+    1. SITNOVA llama a este endpoint (ej: cuando detecta un vehiculo)
+    2. AsterSIPVox instruye al asistente virtual a llamar al destino
+    3. El asistente virtual (Ultravox) llama al intercomunicador
+    4. El visitante habla con la IA
+
+    Ejemplo:
+    - destination: "1006" (extension del intercomunicador de entrada)
+    - visitor_plate: "ABC123" (placa detectada por OCR)
+    """
+    client = get_astersipvox_client()
+
+    if not client.api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="AsterSIPVox no configurado. Falta ASTERSIPVOX_API_KEY."
+        )
+
+    # Construir contexto del visitante
+    visitor_context = {}
+    if request.visitor_plate:
+        visitor_context["plate"] = request.visitor_plate
+    if request.visitor_name:
+        visitor_context["name"] = request.visitor_name
+    if request.resident_name:
+        visitor_context["resident_name"] = request.resident_name
+    if request.apartment:
+        visitor_context["apartment"] = request.apartment
+
+    try:
+        logger.info(f"Originando llamada a: {request.destination}")
+
+        result = await client.originate_call(
+            destination=request.destination,
+            visitor_context=visitor_context if visitor_context else None,
+            custom_prompt=request.custom_prompt,
+        )
+
+        logger.success(f"Llamada originada: {result.status}")
+
+        return OriginateCallResponse(
+            success=True,
+            destination=result.destination,
+            from_user=result.from_user,
+            status=result.status,
+            message=f"Llamada originada exitosamente a {request.destination}",
+        )
+
+    except Exception as e:
+        logger.error(f"Error originando llamada: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error originando llamada: {str(e)}"
         )
 
 
