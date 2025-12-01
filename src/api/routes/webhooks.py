@@ -1,7 +1,7 @@
 """
 Webhooks para integraciones externas:
 - Ultravox (voice AI)
-- Hikvision (eventos de cámaras)
+- Hikvision (eventos de camaras)
 - Evolution API (WhatsApp responses)
 """
 from fastapi import APIRouter, Request, HTTPException, Header
@@ -9,6 +9,11 @@ from typing import Optional, Annotated
 from loguru import logger
 
 from src.config.settings import settings
+from src.services.voice.webhook_handler import (
+    process_ultravox_webhook,
+    verify_ultravox_signature,
+    get_active_sessions,
+)
 
 router = APIRouter()
 
@@ -23,29 +28,53 @@ async def ultravox_webhook(
     x_webhook_signature: Annotated[Optional[str], Header()] = None,
 ):
     """
-    Webhook para eventos de Ultravox.
+    Webhook para eventos de Ultravox Voice AI.
 
-    Eventos esperados:
-    - call.started: Llamada iniciada
-    - call.transcript: Transcripción de audio
-    - call.ended: Llamada terminada
-    - call.error: Error en la llamada
+    Eventos manejados:
+    - call.started: Inicia sesion del portero
+    - call.transcript: Actualiza transcripcion
+    - call.tool_call: Ejecuta herramientas (verificar, notificar, abrir)
+    - call.ended: Finaliza sesion
+    - call.error: Registra errores
     """
+    # Obtener body para verificacion de firma
+    body = await request.body()
+
+    # Validar firma (opcional en desarrollo)
+    if not verify_ultravox_signature(x_webhook_signature, body):
+        logger.warning("Firma de webhook invalida")
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    # Parsear payload
     payload = await request.json()
-    event = payload.get("event")
+    event = payload.get("event", "unknown")
+    call_id = payload.get("callId", payload.get("call_id", "unknown"))
+    data = payload.get("data", payload)
 
-    # TODO: Validar signature
-    # if not verify_ultravox_signature(x_webhook_signature, payload):
-    #     raise HTTPException(status_code=401, detail="Invalid signature")
+    logger.info(f"Ultravox webhook: {event} (call: {call_id})")
 
-    logger.info(f"📞 Ultravox webhook: {event}")
+    # Procesar evento
+    result = await process_ultravox_webhook(event, call_id, data)
 
-    # TODO: Procesar evento con LangGraph
-    # - call.started → Inicializar estado
-    # - call.transcript → Actualizar conversación
-    # - call.ended → Finalizar sesión
+    return {
+        "status": "processed",
+        "event": event,
+        "result": result,
+    }
 
-    return {"status": "received", "event": event}
+
+@router.get("/ultravox/sessions")
+async def get_ultravox_sessions():
+    """
+    Endpoint de debug para ver sesiones activas.
+    Solo disponible en desarrollo.
+    """
+    if not settings.is_development:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    return {
+        "active_sessions": get_active_sessions(),
+    }
 
 
 # ============================================
