@@ -102,8 +102,7 @@ class UltravoxClient:
         # Payload para crear la llamada (sin tools por ahora)
         payload = {
             "systemPrompt": system_prompt,
-            "voice": self.voice,
-            "model": self.model,
+            "voice": "f972fbf6-89f5-40a1-9ad7-ee0aa445e8c3",  # Sara (es-ES)
             "firstSpeaker": "FIRST_SPEAKER_AGENT",
             "temperature": 0.7,
             "medium": {
