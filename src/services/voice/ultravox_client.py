@@ -99,10 +99,7 @@ class UltravoxClient:
             apartment=apartment,
         )
 
-        # Configurar los tools que el agente puede usar
-        tools = self._build_agent_tools()
-
-        # Payload para crear la llamada
+        # Payload para crear la llamada (sin tools por ahora)
         payload = {
             "systemPrompt": system_prompt,
             "voice": self.voice,
@@ -118,11 +115,6 @@ class UltravoxClient:
                     "text": "Buenas, bienvenido al condominio. Soy el asistente de seguridad. ¿A quién viene a visitar?"
                 }
             ],
-            "selectedTools": tools,
-            "metadata": {
-                "session_id": session_id,
-                "timestamp": datetime.now().isoformat(),
-            }
         }
 
         logger.info(f"Creando llamada Ultravox para sesion: {session_id}")
