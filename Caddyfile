@@ -1,0 +1,39 @@
+# ============================================
+# SITNOVA - Caddy Reverse Proxy
+# SSL automático con Let's Encrypt
+# ============================================
+
+# API Backend
+api.sitnova.integratec-ia.com {
+    reverse_proxy backend:8000
+
+    # Headers CORS
+    header {
+        Access-Control-Allow-Origin "https://sitnova.integratec-ia.com"
+        Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+        Access-Control-Allow-Headers "Content-Type, Authorization"
+    }
+
+    # Logs
+    log {
+        output stdout
+        format console
+    }
+}
+
+# Evolution API (WhatsApp)
+evolution.sitnova.integratec-ia.com {
+    reverse_proxy evolution:8080
+
+    # WebSocket support
+    @websockets {
+        header Connection *Upgrade*
+        header Upgrade websocket
+    }
+    reverse_proxy @websockets evolution:8080
+
+    log {
+        output stdout
+        format console
+    }
+}

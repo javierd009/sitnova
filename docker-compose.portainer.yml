@@ -1,0 +1,128 @@
+version: '3.8'
+
+# ============================================
+# SITNOVA - Portainer Stack (Backend Only)
+# Frontend está en Vercel
+# ============================================
+
+services:
+  # ============================================
+  # REDIS - State & Cache
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: sitnova-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 100mb --maxmemory-policy allkeys-lru
+    networks:
+      - sitnova-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ============================================
+  # BACKEND - FastAPI + LangGraph
+  # ============================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: sitnova-backend
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      # General
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=WARNING
+
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+      # Supabase
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+
+      # LLM
+      - LLM_PROVIDER=google
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - LLM_MODEL=gemini-2.0-flash-exp
+
+      # Ultravox
+      - ULTRAVOX_API_KEY=${ULTRAVOX_API_KEY}
+
+      # Security
+      - SECRET_KEY=${SECRET_KEY}
+      - CORS_ORIGINS=["https://sitnova.integratec-ia.com","https://sitnova-frontend.vercel.app"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - sitnova-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================
+  # EVOLUTION API - WhatsApp
+  # ============================================
+  evolution:
+    image: atendai/evolution-api:latest
+    container_name: sitnova-evolution
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      - SERVER_URL=https://evolution.sitnova.integratec-ia.com
+      - AUTHENTICATION_TYPE=apikey
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY}
+      - DATABASE_ENABLED=false
+      - REDIS_ENABLED=true
+      - REDIS_URI=redis://redis:6379
+      - WEBSOCKET_ENABLED=true
+      - LOG_LEVEL=WARN
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      - redis
+    networks:
+      - sitnova-network
+
+  # ============================================
+  # CADDY - Reverse Proxy + Auto SSL
+  # ============================================
+  caddy:
+    image: caddy:2-alpine
+    container_name: sitnova-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - evolution
+    networks:
+      - sitnova-network
+
+volumes:
+  redis_data:
+  evolution_instances:
+  caddy_data:
+  caddy_config:
+
+networks:
+  sitnova-network:
+    driver: bridge
