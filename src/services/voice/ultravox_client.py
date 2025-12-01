@@ -115,7 +115,7 @@ class UltravoxClient:
             "initialMessages": [
                 {
                     "role": "MESSAGE_ROLE_AGENT",
-                    "content": "Buenas, bienvenido al condominio. Soy el asistente de seguridad. ¿A quién viene a visitar?"
+                    "text": "Buenas, bienvenido al condominio. Soy el asistente de seguridad. ¿A quién viene a visitar?"
                 }
             ],
             "selectedTools": tools,
