@@ -11,13 +11,35 @@ Flujo:
 4. SITNOVA ejecuta la accion y responde
 5. El agente recibe la respuesta y continua la conversacion
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Any
 from datetime import datetime
 from loguru import logger
+import json
 
 router = APIRouter()
+
+
+# ============================================
+# HELPER: Log incoming requests for debugging
+# ============================================
+async def log_request(request: Request, endpoint: str) -> dict:
+    """Log all incoming request details for debugging."""
+    body = {}
+    try:
+        body = await request.json()
+    except:
+        pass
+
+    logger.info(f"=== INCOMING REQUEST TO {endpoint} ===")
+    logger.info(f"Method: {request.method}")
+    logger.info(f"Headers: {dict(request.headers)}")
+    logger.info(f"Query params: {dict(request.query_params)}")
+    logger.info(f"Body: {body}")
+    logger.info(f"=====================================")
+
+    return body
 
 
 # ============================================
@@ -78,122 +100,118 @@ class DenegarAccesoResponse(BaseModel):
 # ENDPOINTS
 # ============================================
 
-@router.post("/verificar-visitante", response_model=VerificarVisitanteResponse)
-async def verificar_visitante(request: VerificarVisitanteRequest):
+@router.post("/verificar-visitante")
+async def verificar_visitante(
+    request: Request,
+    cedula: Optional[str] = Query(None),
+    nombre: Optional[str] = Query(None),
+):
     """
     Verifica si un visitante tiene pre-autorizacion.
-
-    El agente de voz llama a este endpoint cuando necesita verificar
-    si un visitante puede ingresar sin contactar al residente.
-
-    Busca en la base de datos:
-    - Pre-autorizaciones activas por cedula
-    - Visitantes frecuentes
-    - Proveedores autorizados
+    Acepta parametros via body JSON o query params.
     """
-    logger.info(f"Verificando visitante: cedula={request.cedula}, nombre={request.nombre}")
+    # Log raw request for debugging
+    body = await log_request(request, "/verificar-visitante")
+
+    # Get params from body or query
+    visitor_cedula = body.get("cedula") or cedula
+    visitor_nombre = body.get("nombre") or nombre
+
+    logger.info(f"Verificando visitante: cedula={visitor_cedula}, nombre={visitor_nombre}")
 
     # TODO: Implementar busqueda real en Supabase
     # Por ahora, retornamos mock para testing
 
-    # Simular verificacion
-    if request.cedula and request.cedula.startswith("1"):
-        # Visitante pre-autorizado (mock)
-        logger.info(f"Visitante {request.cedula} PRE-AUTORIZADO")
-        return VerificarVisitanteResponse(
-            autorizado=True,
-            mensaje=f"El visitante {request.nombre or 'identificado'} tiene pre-autorizacion vigente",
-            residente_nombre="Juan Perez",
-            apartamento="Casa 5",
-        )
+    # Simular verificacion - autorizar si cedula empieza con "1"
+    if visitor_cedula and str(visitor_cedula).startswith("1"):
+        logger.info(f"Visitante {visitor_cedula} PRE-AUTORIZADO")
+        return {
+            "autorizado": True,
+            "mensaje": f"El visitante {visitor_nombre or 'identificado'} tiene pre-autorizacion vigente",
+            "residente_nombre": "Juan Perez",
+            "apartamento": "Casa 5",
+        }
     else:
-        # No pre-autorizado
-        logger.info(f"Visitante {request.cedula} NO pre-autorizado")
-        return VerificarVisitanteResponse(
-            autorizado=False,
-            mensaje="El visitante no tiene pre-autorizacion. Debe contactar al residente.",
-            residente_nombre=None,
-            apartamento=None,
-        )
+        logger.info(f"Visitante {visitor_cedula or visitor_nombre} NO pre-autorizado")
+        return {
+            "autorizado": False,
+            "mensaje": "El visitante no tiene pre-autorizacion. Debe contactar al residente.",
+            "residente_nombre": None,
+            "apartamento": None,
+        }
 
 
-@router.post("/notificar-residente", response_model=NotificarResidenteResponse)
-async def notificar_residente(request: NotificarResidenteRequest):
+@router.post("/notificar-residente")
+async def notificar_residente(
+    request: Request,
+    apartamento: Optional[str] = Query(None),
+    nombre_visitante: Optional[str] = Query(None),
+):
     """
     Envia notificacion al residente para autorizar visita.
-
-    El agente de voz llama a este endpoint cuando necesita contactar
-    al residente para autorizar el ingreso de un visitante.
-
-    Metodos de notificacion:
-    1. WhatsApp (via Evolution API)
-    2. Llamada telefonica (via FreePBX)
-    3. Push notification (via OneSignal)
+    Acepta parametros via body JSON o query params.
     """
-    logger.info(f"Notificando residente: apt={request.apartamento}, visitante={request.nombre_visitante}")
+    body = await log_request(request, "/notificar-residente")
+
+    apt = body.get("apartamento") or apartamento
+    visitante = body.get("nombre_visitante") or nombre_visitante
+
+    logger.info(f"Notificando residente: apt={apt}, visitante={visitante}")
 
     # TODO: Implementar notificacion real via Evolution API
-    # Por ahora, retornamos mock
 
-    # Simular envio de notificacion
-    logger.info(f"WhatsApp enviado a residente de {request.apartamento}")
-
-    return NotificarResidenteResponse(
-        enviado=True,
-        mensaje=f"Notificacion enviada al residente de {request.apartamento}. Por favor espere la autorizacion.",
-        metodo="whatsapp",
-    )
+    return {
+        "enviado": True,
+        "mensaje": f"Notificacion enviada al residente de {apt}. Por favor espere la autorizacion.",
+        "metodo": "whatsapp",
+    }
 
 
-@router.post("/abrir-porton", response_model=AbrirPortonResponse)
-async def abrir_porton(request: AbrirPortonRequest):
+@router.post("/abrir-porton")
+async def abrir_porton(
+    request: Request,
+    motivo: Optional[str] = Query(None),
+):
     """
     Abre el porton de entrada.
-
-    El agente de voz llama a este endpoint cuando el visitante
-    ha sido autorizado para ingresar.
-
-    Acciones:
-    1. Envia comando a Hikvision ISAPI
-    2. Registra evento de acceso en Supabase
-    3. Notifica al residente (opcional)
+    Acepta parametros via body JSON o query params.
     """
-    logger.info(f"Abriendo porton: motivo={request.motivo}")
+    body = await log_request(request, "/abrir-porton")
+
+    reason = body.get("motivo") or motivo or "Autorizado por agente"
+
+    logger.info(f"Abriendo porton: motivo={reason}")
 
     # TODO: Implementar apertura real via Hikvision ISAPI
-    # Por ahora, retornamos mock
+    logger.success(f"PORTON ABIERTO: {reason}")
 
-    # Simular apertura
-    logger.success(f"Porton ABIERTO: {request.motivo}")
-
-    return AbrirPortonResponse(
-        abierto=True,
-        mensaje="El porton se ha abierto. Puede ingresar. Bienvenido al condominio.",
-    )
+    return {
+        "abierto": True,
+        "mensaje": "El porton se ha abierto. Puede ingresar. Bienvenido al condominio.",
+    }
 
 
-@router.post("/denegar-acceso", response_model=DenegarAccesoResponse)
-async def denegar_acceso(request: DenegarAccesoRequest):
+@router.post("/denegar-acceso")
+async def denegar_acceso(
+    request: Request,
+    razon: Optional[str] = Query(None),
+):
     """
     Deniega el acceso y registra el evento.
-
-    El agente de voz llama a este endpoint cuando el acceso
-    es denegado (residente no autorizo, visitante sospechoso, etc).
-
-    Acciones:
-    1. Registra evento de denegacion en Supabase
-    2. Captura foto del visitante (opcional)
-    3. Notifica a seguridad (si es necesario)
+    Acepta parametros via body JSON o query params.
     """
-    logger.warning(f"Acceso DENEGADO: {request.razon}")
+    body = await log_request(request, "/denegar-acceso")
+
+    reason = body.get("razon") or razon or "No autorizado"
+
+    logger.warning(f"ACCESO DENEGADO: {reason}")
 
     # TODO: Implementar registro real en Supabase
-    # Por ahora, retornamos mock
 
-    return DenegarAccesoResponse(
-        registrado=True,
-        mensaje=f"Acceso denegado. {request.razon}. Por favor retire su vehiculo.",
-    )
+    return {
+        "registrado": True,
+        "mensaje": f"Acceso denegado. {reason}. Por favor retire su vehiculo.",
+    }
 
 
 @router.get("/buscar-residente")
