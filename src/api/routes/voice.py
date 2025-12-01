@@ -35,6 +35,17 @@ class CreateCallRequest(BaseModel):
     resident_name: Optional[str] = None
     use_sip: bool = False
     sip_uri: Optional[str] = None
+    session_id: Optional[str] = None
+
+
+class CreateSIPCallRequest(BaseModel):
+    """Request para crear una llamada SIP a FreePBX."""
+    sip_domain: str  # ej: integrateccr.ddns.net
+    sip_port: int = 5060
+    extension: str  # ej: 1006
+    password: Optional[str] = None
+    visitor_plate: Optional[str] = None
+    visitor_name: Optional[str] = None
 
 
 class CreateCallResponse(BaseModel):
@@ -122,6 +133,70 @@ async def create_voice_call(
         raise HTTPException(
             status_code=500,
             detail=f"Error creando llamada: {str(e)}"
+        )
+
+
+@router.post("/calls/sip", response_model=CreateCallResponse)
+async def create_sip_call(
+    request: CreateSIPCallRequest,
+):
+    """
+    Crea una llamada SIP hacia FreePBX/Asterisk.
+
+    Esta llamada permite que Ultravox llame directamente a una extension
+    del sistema de telefonia (FreePBX). El agente de voz iniciara la
+    conversacion con el intercomunicador/softphone.
+
+    Ejemplo:
+    - sip_domain: integrateccr.ddns.net
+    - sip_port: 5060
+    - extension: 1006
+    """
+    client = get_ultravox_client()
+
+    if not client.api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Ultravox no configurado. Falta ULTRAVOX_API_KEY."
+        )
+
+    # Construir SIP URI
+    sip_uri = f"sip:{request.extension}@{request.sip_domain}:{request.sip_port}"
+
+    # Generar session_id
+    session_id = f"sip-{uuid.uuid4().hex[:8]}"
+
+    # Contexto del visitante
+    visitor_context = {}
+    if request.visitor_plate:
+        visitor_context["plate"] = request.visitor_plate
+    if request.visitor_name:
+        visitor_context["name"] = request.visitor_name
+
+    try:
+        logger.info(f"Iniciando llamada SIP a: {sip_uri}")
+
+        call = await client.create_sip_call(
+            session_id=session_id,
+            sip_uri=sip_uri,
+            visitor_context=visitor_context if visitor_context else None,
+        )
+
+        logger.success(f"Llamada SIP creada: {call.call_id}")
+
+        return CreateCallResponse(
+            success=True,
+            call_id=call.call_id,
+            session_id=session_id,
+            join_url=call.join_url,
+            message=f"Llamada SIP creada. Ultravox llamara a {sip_uri}",
+        )
+
+    except Exception as e:
+        logger.error(f"Error creando llamada SIP: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error creando llamada SIP: {str(e)}"
         )
 
 

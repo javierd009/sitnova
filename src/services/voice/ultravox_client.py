@@ -151,37 +151,41 @@ class UltravoxClient:
         """
         Crea una llamada que se conecta via SIP (para Fanvil/FreePBX).
 
+        Ultravox llamará al SIP URI especificado (outbound call).
+
         Args:
             session_id: ID de sesion
-            sip_uri: URI SIP del intercomunicador (ej: sip:entrada@pbx.local)
+            sip_uri: URI SIP completo (ej: sip:1006@pbx.example.com:5060)
             visitor_context: Contexto del visitante
 
         Returns:
             UltravoxCall
         """
         system_prompt = self._build_system_prompt(visitor_context=visitor_context)
-        tools = self._build_agent_tools()
 
+        # Payload con formato correcto de Ultravox (mismo que create_call pero con SIP)
         payload = {
             "systemPrompt": system_prompt,
-            "voice": self.voice,
-            "model": self.model,
+            "voice": "f972fbf6-89f5-40a1-9ad7-ee0aa445e8c3",  # Sara (es-ES)
             "firstSpeaker": "FIRST_SPEAKER_AGENT",
             "temperature": 0.7,
             "medium": {
-                "sip": {
-                    "uri": sip_uri,
-                    "codec": "PCMU",  # G.711 mu-law
+                "serverWebSocket": {
+                    "inputSampleRate": 8000,
+                    "outputSampleRate": 8000,
+                    "clientBufferSizeMs": 60,
                 }
             },
-            "selectedTools": tools,
-            "metadata": {
-                "session_id": session_id,
-                "sip_uri": sip_uri,
-            }
+            "initialMessages": [
+                {
+                    "role": "MESSAGE_ROLE_AGENT",
+                    "text": "Buenas, bienvenido al condominio. Soy el asistente de seguridad. ¿A quién viene a visitar?"
+                }
+            ],
         }
 
         logger.info(f"Creando llamada SIP para: {sip_uri}")
+        logger.info(f"Payload: {payload}")
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -191,10 +195,11 @@ class UltravoxClient:
             )
 
             if response.status_code != 201:
-                logger.error(f"Error creando llamada SIP: {response.text}")
-                raise Exception(f"Error: {response.text}")
+                logger.error(f"Error creando llamada SIP: {response.status_code} - {response.text}")
+                raise Exception(f"Error Ultravox: {response.text}")
 
             data = response.json()
+            logger.info(f"Respuesta Ultravox: {data}")
 
             return UltravoxCall(
                 call_id=data["callId"],
