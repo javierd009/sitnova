@@ -51,14 +51,17 @@ def verify_ultravox_signature(
     Returns:
         True si la firma es valida
     """
-    if not signature:
-        logger.warning("Webhook sin firma - aceptando en desarrollo")
-        return settings.is_development
-
     webhook_secret = secret or settings.ultravox_webhook_secret
+
+    # Si no hay secret configurado, aceptar todos los webhooks
     if not webhook_secret:
-        logger.warning("ULTRAVOX_WEBHOOK_SECRET no configurado")
-        return settings.is_development
+        logger.warning("ULTRAVOX_WEBHOOK_SECRET no configurado - aceptando webhook")
+        return True
+
+    # Si hay secret pero no hay firma, rechazar
+    if not signature:
+        logger.warning("Webhook sin firma pero secret configurado - rechazando")
+        return False
 
     # Calcular HMAC SHA256
     expected = hmac.new(
