@@ -7,10 +7,21 @@ import hmac
 import hashlib
 from typing import Dict, Any, Optional
 from datetime import datetime
+from enum import Enum
 from loguru import logger
 
 from src.config.settings import settings
-from src.agent.state import VisitStep
+
+
+# Enum local para evitar importar dependencias pesadas de LangChain
+class VisitStep(str, Enum):
+    """Pasos del flujo de visita (copia local)"""
+    INICIO = "inicio"
+    VERIFICANDO_PLACA = "verificando_placa"
+    CONVERSANDO = "conversando"
+    ESPERANDO_AUTORIZACION = "esperando_autorizacion"
+    ACCESO_OTORGADO = "acceso_otorgado"
+    ACCESO_DENEGADO = "acceso_denegado"
 
 
 # ============================================
