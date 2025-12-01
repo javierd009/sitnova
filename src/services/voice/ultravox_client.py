@@ -276,11 +276,15 @@ class UltravoxClient:
         if apartment:
             context_info += f"\n- Casa/Apartamento: {apartment}"
 
+        # Si no hay contexto, usar valor por defecto
+        if not context_info:
+            context_info = "\n- Sin informacion previa"
+
         return f"""Eres el asistente de seguridad virtual de un condominio residencial en Costa Rica.
 
 Tu rol es recibir a los visitantes de manera profesional y amable, verificar su identidad y destino, y gestionar su acceso.
 
-INFORMACION DEL VISITANTE ACTUAL:{context_info if context_info else "\n- Sin informacion previa"}
+INFORMACION DEL VISITANTE ACTUAL:{context_info}
 
 INSTRUCCIONES:
 1. Saluda cordialmente y pregunta a quien viene a visitar
