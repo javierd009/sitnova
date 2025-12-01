@@ -69,7 +69,7 @@ class UltravoxClient:
     def headers(self) -> dict:
         """Headers para requests a Ultravox."""
         return {
-            "Authorization": f"Bearer {self.api_key}",
+            "X-API-Key": self.api_key,
             "Content-Type": "application/json",
         }
 
