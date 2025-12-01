@@ -1,0 +1,23 @@
+# ============================================
+# SITNOVA - Sync Service
+# Synchronizes local OCR events with cloud
+# ============================================
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+RUN pip install --no-cache-dir \
+    httpx \
+    redis \
+    pydantic \
+    python-dotenv
+
+# Copy sync service
+COPY src/services/sync/ ./
+
+# Health check endpoint
+EXPOSE 8002
+
+CMD ["python", "sync_service.py"]

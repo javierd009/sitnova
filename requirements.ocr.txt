@@ -1,0 +1,50 @@
+# ============================================
+# SITNOVA - Dependencias del Servicio OCR
+# ============================================
+
+# ============================================
+# CORE
+# ============================================
+python-dotenv==1.0.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# ============================================
+# FASTAPI (para el servicio API)
+# ============================================
+fastapi==0.109.0
+uvicorn[standard]==0.25.0
+python-multipart==0.0.6
+
+# ============================================
+# VISIÓN ARTIFICIAL
+# ============================================
+# YOLO
+ultralytics==8.1.0
+torch==2.1.2
+torchvision==0.16.2
+
+# OpenCV
+opencv-python-headless==4.9.0.80
+opencv-contrib-python-headless==4.9.0.80
+
+# OCR
+easyocr==1.7.0
+# paddleocr==2.7.0.3  # Alternativa (descomenta si prefieres PaddleOCR)
+
+# Procesamiento de imágenes
+Pillow==10.2.0
+numpy==1.26.3
+
+# ============================================
+# CÁMARAS RTSP
+# ============================================
+av==11.0.0  # Para streaming RTSP
+imageio==2.33.1
+imageio-ffmpeg==0.4.9
+
+# ============================================
+# UTILITIES
+# ============================================
+loguru==0.7.2
+aiofiles==23.2.1

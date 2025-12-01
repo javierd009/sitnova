@@ -1,0 +1,121 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # REDIS - State & Cache
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: sitnova-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    networks:
+      - sitnova-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ============================================
+  # PORTERO IA - Agente Principal
+  # ============================================
+  portero-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: sitnova-agent
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - ENVIRONMENT=production
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+      ocr-service:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - sitnova-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ============================================
+  # OCR SERVICE - Visión Artificial
+  # ============================================
+  ocr-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.ocr
+    container_name: sitnova-ocr
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./models:/app/models
+      - ./data/images:/app/images
+    env_file:
+      - .env
+    environment:
+      - YOLO_DEVICE=cpu
+      - OCR_ENGINE=easyocr
+    restart: unless-stopped
+    networks:
+      - sitnova-network
+    # Si tienes GPU disponible, descomenta:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ============================================
+  # NGINX - Reverse Proxy (Opcional)
+  # ============================================
+  nginx:
+    image: nginx:alpine
+    container_name: sitnova-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - portero-agent
+    restart: unless-stopped
+    networks:
+      - sitnova-network
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  sitnova-network:
+    driver: bridge

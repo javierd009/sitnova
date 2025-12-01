@@ -1,0 +1,168 @@
+version: '3.8'
+
+# ============================================
+# SITNOVA - Portainer Stack
+# Deploy via Portainer UI
+# ============================================
+
+services:
+  # ============================================
+  # REDIS - State & Cache
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: sitnova-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 100mb --maxmemory-policy allkeys-lru
+    networks:
+      - sitnova-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ============================================
+  # BACKEND - FastAPI + LangGraph
+  # ============================================
+  backend:
+    image: ghcr.io/your-org/sitnova-backend:latest
+    # Or build from Dockerfile:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    container_name: sitnova-backend
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      # General
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=WARNING
+
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+      # Supabase
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+
+      # LLM
+      - LLM_PROVIDER=${LLM_PROVIDER:-google}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - LLM_MODEL=${LLM_MODEL:-gemini-2.0-flash-exp}
+
+      # Ultravox
+      - ULTRAVOX_API_KEY=${ULTRAVOX_API_KEY}
+
+      # Security
+      - SECRET_KEY=${SECRET_KEY}
+      - CORS_ORIGINS=["https://sitnova.integratec-ia.com"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - sitnova-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================
+  # FRONTEND - Next.js Admin
+  # ============================================
+  frontend:
+    image: ghcr.io/your-org/sitnova-frontend:latest
+    # Or build from Dockerfile:
+    # build:
+    #   context: ./frontend
+    #   dockerfile: Dockerfile
+    #   args:
+    #     - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+    #     - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    #     - NEXT_PUBLIC_API_URL=https://api.sitnova.integratec-ia.com
+    container_name: sitnova-frontend
+    restart: unless-stopped
+    expose:
+      - "3000"
+    networks:
+      - sitnova-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================
+  # EVOLUTION API - WhatsApp
+  # ============================================
+  evolution:
+    image: atendai/evolution-api:latest
+    container_name: sitnova-evolution
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      - SERVER_URL=https://evolution.sitnova.integratec-ia.com
+      - AUTHENTICATION_TYPE=apikey
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY}
+      - DATABASE_ENABLED=false
+      - REDIS_ENABLED=true
+      - REDIS_URI=redis://redis:6379
+      - WEBSOCKET_ENABLED=true
+      - LOG_LEVEL=WARN
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      - redis
+    networks:
+      - sitnova-network
+
+  # ============================================
+  # NGINX - Reverse Proxy + SSL
+  # ============================================
+  nginx:
+    image: nginx:alpine
+    container_name: sitnova-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - certbot_www:/var/www/certbot:ro
+      - certbot_conf:/etc/letsencrypt:ro
+    depends_on:
+      - backend
+      - frontend
+      - evolution
+    networks:
+      - sitnova-network
+
+  # ============================================
+  # CERTBOT - SSL Auto-renewal
+  # ============================================
+  certbot:
+    image: certbot/certbot
+    container_name: sitnova-certbot
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_conf:/etc/letsencrypt
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    networks:
+      - sitnova-network
+
+volumes:
+  redis_data:
+  evolution_instances:
+  certbot_www:
+  certbot_conf:
+
+networks:
+  sitnova-network:
+    driver: bridge

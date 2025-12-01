@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(source venv/bin/activate)",
+      "Bash(python scripts/seed_data.py:*)",
+      "Bash(python:*)",
+      "Bash(pip show:*)",
+      "Bash(paste:*)",
+      "Bash(timeout 10 python:*)",
+      "Bash(docker --version:*)",
+      "Bash(npm install)",
+      "Bash(npm run build:*)",
+      "Bash(chmod:*)",
+      "Bash(dig:*)",
+      "Bash(gh auth:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

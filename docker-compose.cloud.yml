@@ -1,0 +1,163 @@
+version: '3.8'
+
+# ============================================
+# SITNOVA - Cloud Deployment (Contabo)
+# Sin OCR Service (se ejecuta local)
+# RAM estimado: ~1.5GB
+# ============================================
+
+services:
+  # ============================================
+  # REDIS - State & Cache (~100MB)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: sitnova-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 100mb --maxmemory-policy allkeys-lru
+    networks:
+      - sitnova-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ============================================
+  # BACKEND - FastAPI + LangGraph (~300MB)
+  # ============================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: sitnova-backend
+    restart: unless-stopped
+    expose:
+      - "8000"
+    env_file:
+      - .env.prod
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - ENVIRONMENT=production
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - sitnova-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ============================================
+  # FRONTEND - Next.js Admin (~200MB)
+  # ============================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+        - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+    container_name: sitnova-frontend
+    restart: unless-stopped
+    expose:
+      - "3000"
+    networks:
+      - sitnova-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ============================================
+  # EVOLUTION API - WhatsApp (~500MB)
+  # ============================================
+  evolution:
+    image: atendai/evolution-api:latest
+    container_name: sitnova-evolution
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      - SERVER_URL=https://evolution.${DOMAIN}
+      - AUTHENTICATION_TYPE=apikey
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY}
+      - DATABASE_ENABLED=false
+      - REDIS_ENABLED=true
+      - REDIS_URI=redis://redis:6379
+      - WEBSOCKET_ENABLED=true
+      - LOG_LEVEL=WARN
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      - redis
+    networks:
+      - sitnova-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ============================================
+  # NGINX - Reverse Proxy + SSL (~50MB)
+  # ============================================
+  nginx:
+    image: nginx:alpine
+    container_name: sitnova-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - certbot_www:/var/www/certbot:ro
+      - certbot_conf:/etc/letsencrypt:ro
+    depends_on:
+      - backend
+      - frontend
+      - evolution
+    networks:
+      - sitnova-network
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  # ============================================
+  # CERTBOT - SSL Auto-renewal
+  # ============================================
+  certbot:
+    image: certbot/certbot
+    container_name: sitnova-certbot
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_conf:/etc/letsencrypt
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    networks:
+      - sitnova-network
+
+volumes:
+  redis_data:
+  evolution_instances:
+  certbot_www:
+  certbot_conf:
+
+networks:
+  sitnova-network:
+    driver: bridge

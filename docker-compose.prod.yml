@@ -1,0 +1,170 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # REDIS - State & Cache
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: sitnova-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - sitnova-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ============================================
+  # BACKEND - FastAPI + LangGraph
+  # ============================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sitnova-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.prod
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - sitnova-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================
+  # FRONTEND - Next.js Admin
+  # ============================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+        - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+    container_name: sitnova-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - sitnova-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================
+  # EVOLUTION API - WhatsApp Gateway
+  # ============================================
+  evolution:
+    image: atendai/evolution-api:latest
+    container_name: sitnova-evolution
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_URL=https://evolution.${DOMAIN:-localhost}
+      - AUTHENTICATION_TYPE=apikey
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:-change-me}
+      - DATABASE_ENABLED=true
+      - DATABASE_CONNECTION_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-evolution}
+      - DATABASE_CONNECTION_CLIENT_NAME=evolution
+      - REDIS_ENABLED=true
+      - REDIS_URI=redis://redis:6379
+      - RABBITMQ_ENABLED=false
+      - WEBSOCKET_ENABLED=true
+      - LOG_LEVEL=INFO
+    volumes:
+      - evolution_instances:/evolution/instances
+      - evolution_store:/evolution/store
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - sitnova-network
+
+  # ============================================
+  # POSTGRES - Para Evolution API
+  # ============================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: sitnova-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-evolution}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - sitnova-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # NGINX - Reverse Proxy + SSL
+  # ============================================
+  nginx:
+    image: nginx:alpine
+    container_name: sitnova-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - certbot_www:/var/www/certbot:ro
+      - certbot_conf:/etc/letsencrypt:ro
+    depends_on:
+      - backend
+      - frontend
+      - evolution
+    networks:
+      - sitnova-network
+
+  # ============================================
+  # CERTBOT - SSL Certificates
+  # ============================================
+  certbot:
+    image: certbot/certbot
+    container_name: sitnova-certbot
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_conf:/etc/letsencrypt
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    networks:
+      - sitnova-network
+
+volumes:
+  redis_data:
+  postgres_data:
+  evolution_instances:
+  evolution_store:
+  certbot_www:
+  certbot_conf:
+
+networks:
+  sitnova-network:
+    driver: bridge

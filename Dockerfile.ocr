@@ -1,0 +1,58 @@
+# ============================================
+# Dockerfile para Servicio de OCR (YOLOv8 + EasyOCR)
+# ============================================
+
+FROM python:3.11-slim
+
+# Instalar dependencias del sistema para OpenCV y OCR
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libgl1-mesa-glx \
+    curl \
+    wget \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copiar requirements específicos para OCR
+COPY requirements.ocr.txt .
+
+# Instalar dependencias Python
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.ocr.txt
+
+# Copiar código del servicio OCR
+COPY src/services/vision/ /app/src/services/vision/
+COPY src/config/ /app/src/config/
+
+# Crear directorios necesarios
+RUN mkdir -p /app/models /app/images /app/logs
+
+# Descargar modelos base de YOLO (opcional, puedes montar como volumen)
+# RUN wget https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt -P /app/models/
+
+# Usuario no-root
+RUN useradd -m -u 1000 ocr-user && \
+    chown -R ocr-user:ocr-user /app
+USER ocr-user
+
+# Variables de entorno
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8001/health || exit 1
+
+# Exponer puerto
+EXPOSE 8001
+
+# Comando para iniciar el servicio OCR
+CMD ["uvicorn", "src.services.vision.api:app", "--host", "0.0.0.0", "--port", "8001"]

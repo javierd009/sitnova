@@ -1,0 +1,105 @@
+version: '3.8'
+
+# ============================================
+# SITNOVA - Local Deployment (Condominio)
+# OCR Service + Hardware Integration
+# Requiere: GPU opcional, 4GB+ RAM
+# ============================================
+
+services:
+  # ============================================
+  # OCR SERVICE - YOLO + EasyOCR (~2GB RAM)
+  # ============================================
+  ocr-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.ocr
+    container_name: sitnova-ocr
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      # Cloud Backend Connection
+      - CLOUD_BACKEND_URL=${CLOUD_BACKEND_URL:-https://api.sitnova.com}
+      - CLOUD_API_KEY=${CLOUD_API_KEY}
+
+      # OCR Configuration
+      - YOLO_DEVICE=${YOLO_DEVICE:-cpu}
+      - YOLO_MODEL_PATH=/app/models/yolov8n.pt
+      - YOLO_PLATE_MODEL=/app/models/yolov8_plates.pt
+      - OCR_LANGUAGES=["es", "en"]
+      - OCR_CONFIDENCE_THRESHOLD=0.7
+
+      # Camera URLs
+      - CAMERA_ENTRADA_URL=${CAMERA_ENTRADA_URL}
+      - CAMERA_CEDULA_URL=${CAMERA_CEDULA_URL}
+    volumes:
+      - ./models:/app/models:ro
+      - ocr_cache:/app/cache
+      - ./data/images:/app/data/images
+    networks:
+      - sitnova-local
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    # GPU Support (uncomment if available)
+    # runtime: nvidia
+    # environment:
+    #   - NVIDIA_VISIBLE_DEVICES=all
+
+  # ============================================
+  # LOCAL REDIS - Cache for OCR results (~50MB)
+  # ============================================
+  redis-local:
+    image: redis:7-alpine
+    container_name: sitnova-redis-local
+    restart: unless-stopped
+    volumes:
+      - redis_local_data:/data
+    command: redis-server --appendonly yes --maxmemory 50mb --maxmemory-policy allkeys-lru
+    networks:
+      - sitnova-local
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ============================================
+  # SYNC SERVICE - Local to Cloud (~100MB)
+  # ============================================
+  sync-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.sync
+    container_name: sitnova-sync
+    restart: unless-stopped
+    environment:
+      - CLOUD_BACKEND_URL=${CLOUD_BACKEND_URL:-https://api.sitnova.com}
+      - CLOUD_API_KEY=${CLOUD_API_KEY}
+      - REDIS_HOST=redis-local
+      - REDIS_PORT=6379
+      - SYNC_INTERVAL=5
+    depends_on:
+      - redis-local
+      - ocr-service
+    networks:
+      - sitnova-local
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+volumes:
+  redis_local_data:
+  ocr_cache:
+
+networks:
+  sitnova-local:
+    driver: bridge
