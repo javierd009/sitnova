@@ -107,7 +107,7 @@ class UltravoxClient:
             "systemPrompt": system_prompt,
             "voice": self.voice,
             "model": self.model,
-            "firstSpeaker": "agent",
+            "firstSpeaker": "FIRST_SPEAKER_AGENT",
             "temperature": 0.7,
             "medium": {
                 "webRtc": {}  # Para conexion via WebRTC
@@ -175,7 +175,7 @@ class UltravoxClient:
             "systemPrompt": system_prompt,
             "voice": self.voice,
             "model": self.model,
-            "firstSpeaker": "agent",
+            "firstSpeaker": "FIRST_SPEAKER_AGENT",
             "temperature": 0.7,
             "medium": {
                 "sip": {
