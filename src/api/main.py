@@ -10,7 +10,7 @@ import time
 from loguru import logger
 
 from src.config.settings import settings
-from src.api.routes import webhooks, vision, admin, voice
+from src.api.routes import webhooks, vision, admin, voice, tools
 
 
 # ============================================
@@ -128,6 +128,7 @@ app.include_router(webhooks.router, prefix="/webhooks", tags=["Webhooks"])
 app.include_router(vision.router, prefix="/vision", tags=["Vision"])
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 app.include_router(voice.router, prefix="/voice", tags=["Voice"])
+app.include_router(tools.router, prefix="/tools", tags=["Tools"])
 
 
 # ============================================
