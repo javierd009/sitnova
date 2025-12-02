@@ -115,6 +115,11 @@ async def hikvision_events(request: Request):
 # ============================================
 # Funciones de auth_state compartidas con tools.py
 
+# Log de todos los webhooks recibidos (para debugging)
+webhook_log = []
+MAX_WEBHOOK_LOG = 20
+
+
 @router.post("/evolution/whatsapp")
 async def evolution_webhook(request: Request):
     """
@@ -139,6 +144,18 @@ async def evolution_webhook(request: Request):
 
     event = payload.get("event", "")
     instance = payload.get("instance", "unknown")
+
+    # Guardar en log para debugging
+    from datetime import datetime
+    webhook_entry = {
+        "timestamp": datetime.now().isoformat(),
+        "event": event,
+        "instance": instance,
+        "payload": payload,
+    }
+    webhook_log.append(webhook_entry)
+    if len(webhook_log) > MAX_WEBHOOK_LOG:
+        webhook_log.pop(0)
 
     logger.info(f"💬 WhatsApp webhook received!")
     logger.info(f"   Event: {event}")
@@ -306,3 +323,23 @@ async def evolution_health():
         "pending_authorizations": len(auths),
         "message": "Webhook de Evolution API activo"
     }
+
+
+@router.get("/evolution/webhook-log")
+async def ver_webhook_log():
+    """
+    Debug: Ver todos los webhooks recibidos de Evolution API.
+    Útil para verificar si los webhooks están llegando.
+    """
+    return {
+        "total_received": len(webhook_log),
+        "webhooks": webhook_log,
+        "message": "Estos son los últimos webhooks recibidos de Evolution API"
+    }
+
+
+@router.delete("/evolution/webhook-log")
+async def limpiar_webhook_log():
+    """Limpia el log de webhooks."""
+    webhook_log.clear()
+    return {"message": "Log de webhooks limpiado", "total": 0}
