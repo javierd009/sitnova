@@ -262,6 +262,7 @@ async def notificar_residente(
                 "enviado": False,
                 "mensaje": f"No se encontró residente en {apt}. Verifique el número.",
                 "metodo": "ninguno",
+                "result": f"No encontré ningún residente registrado en {apt}. ¿Podría verificar el número de casa o apartamento?",
             }
 
         resident = result.data[0]
@@ -315,12 +316,14 @@ async def notificar_residente(
                 "enviado": False,
                 "mensaje": f"No se pudo notificar al residente de {apt}. Sin WhatsApp configurado.",
                 "metodo": "ninguno",
+                "result": f"No fue posible contactar al residente de {apt}. No tiene WhatsApp configurado. Por favor intente comunicarse de otra forma.",
             }
 
         return {
             "enviado": True,
             "mensaje": f"Notificación enviada a {resident_name} ({apt}). Por favor espere la autorización.",
             "metodo": ", ".join(metodos_usados),
+            "result": f"He enviado una notificación por WhatsApp al residente de {apt}. Por favor espere un momento mientras confirma si autoriza su ingreso.",
         }
 
     except Exception as e:
@@ -329,6 +332,7 @@ async def notificar_residente(
             "enviado": False,
             "mensaje": f"Error al notificar: {str(e)}",
             "metodo": "error",
+            "result": "Hubo un problema técnico al intentar contactar al residente. Por favor intente nuevamente en unos momentos.",
         }
 
 
