@@ -17,8 +17,18 @@ from typing import Optional, Any
 from datetime import datetime
 from loguru import logger
 import json
+import unicodedata
 
 from src.database.connection import get_supabase
+
+
+def normalize_text(text: str) -> str:
+    """Remove accents and normalize text for search."""
+    if not text:
+        return text
+    # Normalize unicode and remove accents
+    normalized = unicodedata.normalize('NFD', text)
+    return ''.join(c for c in normalized if unicodedata.category(c) != 'Mn')
 
 router = APIRouter()
 
@@ -165,7 +175,10 @@ async def verificar_visitante(
         if visitor_cedula and visitor_cedula != "null":
             query = query.eq("cedula", visitor_cedula)
         elif visitor_nombre:
-            query = query.ilike("visitor_name", f"%{visitor_nombre}%")
+            # Normalize name to remove accents for matching
+            nombre_normalizado = normalize_text(visitor_nombre)
+            logger.info(f"Buscando nombre normalizado: {nombre_normalizado}")
+            query = query.ilike("visitor_name", f"%{nombre_normalizado}%")
 
         result = query.execute()
 
