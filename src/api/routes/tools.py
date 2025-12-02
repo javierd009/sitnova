@@ -231,6 +231,8 @@ async def notificar_residente(
     request: Request,
     apartamento: Optional[str] = Query(None),
     nombre_visitante: Optional[str] = Query(None),
+    cedula: Optional[str] = Query(None),
+    placa: Optional[str] = Query(None),
 ):
     """
     Envia notificacion al residente para autorizar visita.
@@ -239,13 +241,23 @@ async def notificar_residente(
     Busca el residente por apartamento y envía notificación según su preferencia:
     - WhatsApp (Evolution API)
     - Llamada telefónica (próximamente)
+
+    Parámetros opcionales de OCR:
+    - cedula: Número de cédula del visitante (capturado por OCR)
+    - placa: Placa del vehículo (capturada por OCR)
     """
     body = await log_request(request, "/notificar-residente")
 
     apt = body.get("apartamento") or apartamento
     visitante = body.get("nombre_visitante") or nombre_visitante
+    visitor_cedula = body.get("cedula") or cedula
+    visitor_placa = body.get("placa") or placa
 
     logger.info(f"Notificando residente: apt={apt}, visitante={visitante}")
+    if visitor_cedula:
+        logger.info(f"   📄 Cédula: {visitor_cedula}")
+    if visitor_placa:
+        logger.info(f"   🚗 Placa: {visitor_placa}")
 
     # Buscar residente en Supabase
     try:
@@ -301,13 +313,21 @@ async def notificar_residente(
                     use_mock=(not settings.evolution_api_key)
                 )
 
-                # Mensaje de notificación
+                # Mensaje de notificación con datos OCR opcionales
                 mensaje_wa = (
                     f"🚪 *Visita en portería*\n\n"
                     f"Hay una persona esperando en la entrada:\n"
                     f"👤 *Nombre:* {visitante}\n"
-                    f"🏠 *Destino:* {apt}\n\n"
-                    f"Por favor confirme si autoriza el acceso."
+                    f"🏠 *Destino:* {apt}\n"
+                )
+                # Agregar datos OCR si están disponibles
+                if visitor_cedula:
+                    mensaje_wa += f"🪪 *Cédula:* {visitor_cedula}\n"
+                if visitor_placa:
+                    mensaje_wa += f"🚗 *Placa:* {visitor_placa}\n"
+                mensaje_wa += (
+                    f"\nResponda *SI* para autorizar o *NO* para denegar.\n"
+                    f"También puede enviar un mensaje para el visitante."
                 )
 
                 result_wa = evolution.send_text(whatsapp_number, mensaje_wa)
@@ -315,8 +335,14 @@ async def notificar_residente(
                 if result_wa.get("success"):
                     logger.success(f"WhatsApp enviado a {whatsapp_number}")
                     metodos_usados.append("whatsapp")
-                    # Guardar autorización pendiente para tracking
-                    set_pending_authorization(whatsapp_number, apt, visitante)
+                    # Guardar autorización pendiente para tracking (con datos OCR)
+                    set_pending_authorization(
+                        whatsapp_number,
+                        apt,
+                        visitante,
+                        cedula=visitor_cedula,
+                        placa=visitor_placa
+                    )
                 else:
                     logger.error(f"Error enviando WhatsApp: {result_wa.get('error')}")
 
@@ -489,6 +515,21 @@ async def estado_autorizacion(
                         "mensaje": f"El residente ha DENEGADO el acceso del visitante {visitor}.",
                         "visitor_name": visitor,
                         "result": f"Lo siento, el residente de {apt} ha denegado el acceso. No puede ingresar al condominio.",
+                    },
+                    headers=ULTRAVOX_HEADERS
+                )
+            elif status == "mensaje":
+                # Mensaje personalizado del residente
+                mensaje_custom = auth.get("mensaje_personalizado", "")
+                logger.info(f"💬 Estado: MENSAJE PERSONALIZADO para {apt}: {mensaje_custom}")
+                return JSONResponse(
+                    content={
+                        "apartamento": apt,
+                        "estado": "mensaje",
+                        "mensaje": f"El residente envió un mensaje: {mensaje_custom}",
+                        "visitor_name": visitor,
+                        "mensaje_personalizado": mensaje_custom,
+                        "result": f"El residente de {apt} le envía el siguiente mensaje: {mensaje_custom}",
                     },
                     headers=ULTRAVOX_HEADERS
                 )

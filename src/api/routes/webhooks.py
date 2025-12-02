@@ -239,8 +239,19 @@ async def evolution_webhook(request: Request):
                 }
 
             else:
-                logger.info(f"❓ Respuesta no reconocida: '{text}'")
-                return {"status": "unrecognized", "message": text, "hint": "Responda 'si' para autorizar o 'no' para denegar"}
+                # Mensaje personalizado del residente - guardarlo para que el agente lo comunique
+                logger.info(f"💬 Mensaje personalizado del residente: '{text}'")
+                update_authorization(phone, "mensaje", mensaje_personalizado=text)
+                logger.success(f"📝 MENSAJE PERSONALIZADO guardado de {phone} para {auth.get('apartment')}")
+                return {
+                    "status": "processed",
+                    "action": "custom_message",
+                    "apartment": auth.get("apartment"),
+                    "visitor": auth.get("visitor_name"),
+                    "responded_by": phone,
+                    "mensaje_personalizado": text,
+                    "hint": "El agente comunicará este mensaje al visitante"
+                }
 
         else:
             logger.info(f"⚠️ No hay autorización pendiente para {phone}")

@@ -41,26 +41,43 @@ def get_authorization_by_apartment(apartment: str):
     return matches[0]
 
 
-def set_pending_authorization(phone: str, apartment: str, visitor_name: str):
-    """Guarda autorización pendiente."""
+def set_pending_authorization(
+    phone: str,
+    apartment: str,
+    visitor_name: str,
+    cedula: str = None,
+    placa: str = None
+):
+    """Guarda autorización pendiente con datos opcionales de OCR."""
     clean_phone = phone.replace("+", "").replace(" ", "").replace("-", "")
     pending_authorizations[clean_phone] = {
         "apartment": apartment,
         "visitor_name": visitor_name,
         "status": "pendiente",
         "timestamp": datetime.now().isoformat(),
+        "mensaje_personalizado": None,  # Para mensajes custom del residente
+        "cedula": cedula,  # Datos OCR
+        "placa": placa,    # Datos OCR
     }
     logger.info(f"📋 Autorización pendiente creada: {clean_phone} -> {apartment} ({visitor_name})")
+    if cedula:
+        logger.info(f"   📄 Cédula: {cedula}")
+    if placa:
+        logger.info(f"   🚗 Placa: {placa}")
     return clean_phone
 
 
-def update_authorization(phone: str, status: str):
-    """Actualiza estado de autorización."""
+def update_authorization(phone: str, status: str, mensaje_personalizado: str = None):
+    """Actualiza estado de autorización con mensaje personalizado opcional."""
     key, auth = get_pending_authorization(phone)
     if auth:
         auth["status"] = status
         auth["responded_at"] = datetime.now().isoformat()
-        logger.info(f"📋 Autorización actualizada: {key} -> {status}")
+        if mensaje_personalizado:
+            auth["mensaje_personalizado"] = mensaje_personalizado
+            logger.info(f"📋 Autorización actualizada: {key} -> {status} (mensaje: {mensaje_personalizado[:50]}...)")
+        else:
+            logger.info(f"📋 Autorización actualizada: {key} -> {status}")
         return True
     return False
 
