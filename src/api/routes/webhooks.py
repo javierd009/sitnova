@@ -122,70 +122,117 @@ async def evolution_webhook(request: Request):
 
     Usado para capturar respuestas de residentes a autorizaciones.
     Evolution API envía eventos como:
-    - messages.upsert: Mensaje recibido
+    - messages.upsert / MESSAGES_UPSERT: Mensaje recibido
     """
-    payload = await request.json()
-    event = payload.get("event")
+    # Log raw body for debugging
+    try:
+        raw_body = await request.body()
+        logger.info(f"📨 RAW WEBHOOK BODY: {raw_body.decode('utf-8')[:500]}")
+    except Exception as e:
+        logger.error(f"Error reading raw body: {e}")
 
-    logger.info(f"💬 WhatsApp webhook: {event}")
-    logger.debug(f"Payload: {payload}")
+    try:
+        payload = await request.json()
+    except Exception as e:
+        logger.error(f"❌ Error parsing JSON: {e}")
+        return {"status": "error", "message": "Invalid JSON"}
 
-    # Procesar solo mensajes entrantes
-    if event == "messages.upsert":
-        data = payload.get("data", {})
+    event = payload.get("event", "")
+    instance = payload.get("instance", "unknown")
+
+    logger.info(f"💬 WhatsApp webhook received!")
+    logger.info(f"   Event: {event}")
+    logger.info(f"   Instance: {instance}")
+    logger.info(f"   Full payload keys: {list(payload.keys())}")
+
+    # Normalizar evento (manejar mayúsculas y minúsculas)
+    event_normalized = event.lower().replace("_", ".")
+
+    # Procesar mensajes entrantes (messages.upsert o MESSAGES_UPSERT)
+    if event_normalized == "messages.upsert":
+        logger.info("📩 Procesando evento messages.upsert")
+
+        # Evolution API puede enviar data de diferentes formas
+        data = payload.get("data", payload)  # A veces data está en root
         message = data.get("message", {})
+        key_data = data.get("key", {})
 
         # Obtener info del mensaje
-        remote_jid = data.get("key", {}).get("remoteJid", "")
-        from_me = data.get("key", {}).get("fromMe", True)
-        text = message.get("conversation") or message.get("extendedTextMessage", {}).get("text", "")
+        remote_jid = key_data.get("remoteJid", "")
+        from_me = key_data.get("fromMe", False)
+
+        # Extraer texto del mensaje (puede estar en varios lugares)
+        text = (
+            message.get("conversation") or
+            message.get("extendedTextMessage", {}).get("text", "") or
+            data.get("body", "") or
+            ""
+        )
+
+        logger.info(f"   📱 RemoteJID: {remote_jid}")
+        logger.info(f"   📤 FromMe: {from_me}")
+        logger.info(f"   💬 Text: {text}")
+        logger.info(f"   📋 Message keys: {list(message.keys()) if message else 'empty'}")
 
         # Solo procesar mensajes entrantes (no los que enviamos nosotros)
         if from_me:
-            logger.debug("Ignorando mensaje propio")
+            logger.info("⏭️ Ignorando mensaje propio (fromMe=true)")
             return {"status": "ignored", "reason": "own_message"}
 
-        # Extraer número de teléfono
-        phone = remote_jid.replace("@s.whatsapp.net", "")
-
-        logger.info(f"📥 Mensaje de {phone}: {text}")
+        # Extraer número de teléfono (quitar @s.whatsapp.net)
+        phone = remote_jid.replace("@s.whatsapp.net", "").replace("@c.us", "")
+        logger.info(f"📞 Número extraído: {phone}")
 
         # Buscar autorización pendiente para este número
         key, auth = get_pending_authorization(phone)
+        logger.info(f"🔍 Búsqueda de autorización: key={key}, auth={auth}")
+
+        # Log all pending authorizations for debugging
+        all_auths = get_all_authorizations()
+        logger.info(f"📋 Todas las autorizaciones pendientes: {all_auths}")
 
         if auth and auth.get("status") == "pendiente":
             text_lower = text.lower().strip()
+            logger.info(f"🔄 Procesando respuesta: '{text_lower}'")
 
-            # Detectar autorización o rechazo
-            if text_lower in ["si", "sí", "yes", "1", "ok", "autorizo", "autorizado", "dale", "pase"]:
+            # Detectar autorización (más palabras)
+            palabras_si = ["si", "sí", "yes", "1", "ok", "autorizo", "autorizado", "dale", "pase", "dejalo", "déjalo", "que pase", "adelante", "permitido", "aprobado"]
+            palabras_no = ["no", "2", "negar", "denegado", "rechazar", "no autorizo", "rechazado", "negado", "no lo conozco", "no dejar"]
+
+            if any(palabra in text_lower for palabra in palabras_si):
                 update_authorization(phone, "autorizado")
-                logger.success(f"✅ Acceso AUTORIZADO por {phone}")
+                logger.success(f"✅ ACCESO AUTORIZADO por {phone} para {auth.get('apartment')}")
                 return {
                     "status": "processed",
                     "action": "authorized",
                     "apartment": auth.get("apartment"),
                     "visitor": auth.get("visitor_name"),
+                    "responded_by": phone,
                 }
 
-            elif text_lower in ["no", "2", "negar", "denegado", "rechazar", "no autorizo"]:
+            elif any(palabra in text_lower for palabra in palabras_no):
                 update_authorization(phone, "denegado")
-                logger.warning(f"❌ Acceso DENEGADO por {phone}")
+                logger.warning(f"❌ ACCESO DENEGADO por {phone} para {auth.get('apartment')}")
                 return {
                     "status": "processed",
                     "action": "denied",
                     "apartment": auth.get("apartment"),
                     "visitor": auth.get("visitor_name"),
+                    "responded_by": phone,
                 }
 
             else:
-                logger.info(f"Respuesta no reconocida: {text}")
-                return {"status": "unrecognized", "message": text}
+                logger.info(f"❓ Respuesta no reconocida: '{text}'")
+                return {"status": "unrecognized", "message": text, "hint": "Responda 'si' para autorizar o 'no' para denegar"}
 
         else:
-            logger.info(f"No hay autorización pendiente para {phone}")
-            return {"status": "no_pending_auth"}
+            logger.info(f"⚠️ No hay autorización pendiente para {phone}")
+            return {"status": "no_pending_auth", "phone": phone}
 
-    return {"status": "received", "event": event}
+    else:
+        logger.info(f"⏭️ Evento ignorado: {event} (normalizado: {event_normalized})")
+
+    return {"status": "received", "event": event, "processed": False}
 
 
 @router.get("/evolution/autorizaciones")
@@ -195,4 +242,67 @@ async def listar_autorizaciones():
     return {
         "total": len(auths),
         "autorizaciones": auths,
+    }
+
+
+@router.post("/evolution/test-webhook")
+async def test_evolution_webhook():
+    """
+    Endpoint de prueba para simular un webhook de Evolution API.
+    Útil para verificar que el procesamiento funciona.
+    """
+    # Simular payload de Evolution API
+    test_payload = {
+        "event": "messages.upsert",
+        "instance": "sitnova_agente",
+        "data": {
+            "key": {
+                "remoteJid": "50684817227@s.whatsapp.net",
+                "fromMe": False,
+                "id": "TEST123"
+            },
+            "message": {
+                "conversation": "si"
+            },
+            "messageType": "conversation"
+        }
+    }
+
+    logger.info("🧪 TEST: Simulando webhook de Evolution API")
+
+    # Procesar como si fuera un webhook real
+    event = test_payload.get("event")
+    data = test_payload.get("data", {})
+    key_data = data.get("key", {})
+    message = data.get("message", {})
+
+    phone = key_data.get("remoteJid", "").replace("@s.whatsapp.net", "")
+    text = message.get("conversation", "")
+
+    logger.info(f"🧪 Phone: {phone}, Text: {text}")
+
+    # Verificar autorizaciones pendientes
+    key, auth = get_pending_authorization(phone)
+    all_auths = get_all_authorizations()
+
+    return {
+        "test": "webhook_simulation",
+        "phone_tested": phone,
+        "text_tested": text,
+        "found_authorization": auth is not None,
+        "authorization_details": auth,
+        "all_pending_authorizations": all_auths,
+        "message": "Use este endpoint después de llamar a notificar_residente para verificar el flujo"
+    }
+
+
+@router.get("/evolution/health")
+async def evolution_health():
+    """Health check para el webhook de Evolution."""
+    auths = get_all_authorizations()
+    return {
+        "status": "ok",
+        "webhook_endpoint": "/webhooks/evolution/whatsapp",
+        "pending_authorizations": len(auths),
+        "message": "Webhook de Evolution API activo"
     }

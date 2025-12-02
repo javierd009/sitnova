@@ -432,60 +432,101 @@ async def buscar_residente(
     }
 
 
-@router.get("/estado-autorizacion")
+@router.api_route("/estado-autorizacion", methods=["GET", "POST"])
 async def estado_autorizacion(
+    request: Request,
     apartamento: Optional[str] = Query(None, description="Numero de apartamento"),
     session_id: Optional[str] = Query(None, description="ID de sesion de la visita"),
 ):
     """
     Consulta el estado de una autorizacion pendiente.
 
-    Cuando el agente envia notificacion al residente, puede
-    consultar periodicamente si ya respondio.
+    IMPORTANTE: El agente DEBE llamar este endpoint después de notificar_residente
+    para verificar si el residente ya autorizó o denegó el acceso.
+
+    El agente debe seguir consultando hasta que el estado sea "autorizado" o "denegado".
     """
-    logger.info(f"Consultando estado: apartamento={apartamento}, session={session_id}")
+    # Log request for debugging
+    body = await log_request(request, "/estado-autorizacion")
+
+    # Obtener apartamento de body o query params
+    apt = body.get("apartamento") or apartamento
+
+    logger.info(f"🔍 Consultando estado de autorización: apartamento={apt}, session={session_id}")
+
+    # Log all pending authorizations for debugging
+    from src.api.routes.auth_state import get_all_authorizations
+    all_auths = get_all_authorizations()
+    logger.info(f"📋 Autorizaciones pendientes actuales: {all_auths}")
 
     # Buscar por apartamento si se proporciona
-    if apartamento:
-        key, auth = get_authorization_by_apartment(apartamento)
+    if apt:
+        key, auth = get_authorization_by_apartment(apt)
+        logger.info(f"🔎 Resultado búsqueda: key={key}, auth={auth}")
+
         if auth:
             status = auth.get("status", "pendiente")
             visitor = auth.get("visitor_name", "desconocido")
 
             if status == "autorizado":
-                return {
-                    "apartamento": apartamento,
-                    "estado": "autorizado",
-                    "mensaje": f"El residente ha AUTORIZADO el acceso del visitante {visitor}. Puede abrir el portón.",
-                    "visitor_name": visitor,
-                }
+                logger.success(f"✅ Estado: AUTORIZADO para {apt}")
+                return JSONResponse(
+                    content={
+                        "apartamento": apt,
+                        "estado": "autorizado",
+                        "mensaje": f"El residente ha AUTORIZADO el acceso del visitante {visitor}. Puede abrir el portón.",
+                        "visitor_name": visitor,
+                        "result": f"Excelente noticias. El residente de {apt} ha autorizado el ingreso de {visitor}. Puede abrir el portón.",
+                    },
+                    headers=ULTRAVOX_HEADERS
+                )
             elif status == "denegado":
-                return {
-                    "apartamento": apartamento,
-                    "estado": "denegado",
-                    "mensaje": f"El residente ha DENEGADO el acceso del visitante {visitor}.",
-                    "visitor_name": visitor,
-                }
+                logger.warning(f"❌ Estado: DENEGADO para {apt}")
+                return JSONResponse(
+                    content={
+                        "apartamento": apt,
+                        "estado": "denegado",
+                        "mensaje": f"El residente ha DENEGADO el acceso del visitante {visitor}.",
+                        "visitor_name": visitor,
+                        "result": f"Lo siento, el residente de {apt} ha denegado el acceso. No puede ingresar al condominio.",
+                    },
+                    headers=ULTRAVOX_HEADERS
+                )
             else:
-                return {
-                    "apartamento": apartamento,
-                    "estado": "pendiente",
-                    "mensaje": f"Esperando respuesta del residente de {apartamento}.",
-                    "visitor_name": visitor,
-                }
+                logger.info(f"⏳ Estado: PENDIENTE para {apt}")
+                return JSONResponse(
+                    content={
+                        "apartamento": apt,
+                        "estado": "pendiente",
+                        "mensaje": f"Esperando respuesta del residente de {apt}.",
+                        "visitor_name": visitor,
+                        "result": f"Todavía estoy esperando la respuesta del residente de {apt}. Por favor aguarde un momento más.",
+                    },
+                    headers=ULTRAVOX_HEADERS
+                )
         else:
-            return {
-                "apartamento": apartamento,
-                "estado": "no_encontrado",
-                "mensaje": f"No hay autorización pendiente para {apartamento}.",
-            }
+            logger.warning(f"⚠️ No hay autorización para {apt}")
+            return JSONResponse(
+                content={
+                    "apartamento": apt,
+                    "estado": "no_encontrado",
+                    "mensaje": f"No hay autorización pendiente para {apt}.",
+                    "result": f"No encontré una solicitud de autorización pendiente para {apt}. Primero debo notificar al residente.",
+                },
+                headers=ULTRAVOX_HEADERS
+            )
 
     # Fallback si no hay apartamento
-    return {
-        "session_id": session_id,
-        "estado": "pendiente",
-        "mensaje": "Especifique el apartamento para consultar el estado.",
-    }
+    logger.warning("⚠️ No se especificó apartamento")
+    return JSONResponse(
+        content={
+            "session_id": session_id,
+            "estado": "pendiente",
+            "mensaje": "Especifique el apartamento para consultar el estado.",
+            "result": "Necesito saber el número de casa o apartamento para consultar el estado de la autorización.",
+        },
+        headers=ULTRAVOX_HEADERS
+    )
 
 
 # ============================================
