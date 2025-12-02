@@ -20,6 +20,12 @@ import json
 
 router = APIRouter()
 
+# ============================================
+# REGISTRO DE LLAMADAS (para debugging)
+# ============================================
+tool_calls_log = []
+MAX_LOG_SIZE = 50
+
 
 # ============================================
 # HELPER: Log incoming requests for debugging
@@ -32,10 +38,24 @@ async def log_request(request: Request, endpoint: str) -> dict:
     except:
         pass
 
+    # Store in memory log for diagnostics
+    call_record = {
+        "timestamp": datetime.now().isoformat(),
+        "endpoint": endpoint,
+        "method": request.method,
+        "query_params": dict(request.query_params),
+        "body": body,
+        "client_ip": request.client.host if request.client else "unknown",
+    }
+    tool_calls_log.append(call_record)
+
+    # Keep only last N calls
+    if len(tool_calls_log) > MAX_LOG_SIZE:
+        tool_calls_log.pop(0)
+
     logger.info(f"=== INCOMING REQUEST TO {endpoint} ===")
-    logger.info(f"Method: {request.method}")
-    logger.info(f"Headers: {dict(request.headers)}")
-    logger.info(f"Query params: {dict(request.query_params)}")
+    logger.info(f"Timestamp: {call_record['timestamp']}")
+    logger.info(f"Client IP: {call_record['client_ip']}")
     logger.info(f"Body: {body}")
     logger.info(f"=====================================")
 
@@ -247,3 +267,26 @@ async def estado_autorizacion(
         "estado": "pendiente",  # pendiente, autorizado, denegado
         "mensaje": "Esperando respuesta del residente",
     }
+
+
+# ============================================
+# DIAGNOSTICO - Ver llamadas recientes
+# ============================================
+@router.get("/diagnostico")
+async def diagnostico():
+    """
+    Muestra las ultimas llamadas a los tools.
+    Util para verificar que AsterSIPVox esta llamando correctamente.
+    """
+    return {
+        "total_calls": len(tool_calls_log),
+        "recent_calls": tool_calls_log[-10:],  # Ultimas 10
+        "message": "Estas son las ultimas llamadas recibidas a los endpoints de tools"
+    }
+
+
+@router.delete("/diagnostico")
+async def limpiar_diagnostico():
+    """Limpia el log de llamadas."""
+    tool_calls_log.clear()
+    return {"message": "Log limpiado", "total_calls": 0}
