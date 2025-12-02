@@ -21,13 +21,24 @@ def get_pending_authorization(phone: str):
 
 
 def get_authorization_by_apartment(apartment: str):
-    """Busca autorización pendiente por apartamento."""
+    """Busca autorización pendiente por apartamento (retorna la más reciente)."""
     apt_normalized = apartment.lower().replace(" ", "")
+    matches = []
+
+    # Buscar todas las autorizaciones para este apartamento
     for key, auth in pending_authorizations.items():
         apt_stored = auth.get("apartment", "").lower().replace(" ", "")
         if apt_normalized in apt_stored or apt_stored in apt_normalized:
-            return key, auth
-    return None, None
+            matches.append((key, auth))
+
+    if not matches:
+        return None, None
+
+    # Ordenar por timestamp (más reciente primero)
+    matches.sort(key=lambda x: x[1].get("timestamp", ""), reverse=True)
+
+    # Retornar la más reciente
+    return matches[0]
 
 
 def set_pending_authorization(phone: str, apartment: str, visitor_name: str):
