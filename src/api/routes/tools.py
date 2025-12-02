@@ -483,27 +483,175 @@ async def denegar_acceso(
     }
 
 
-@router.get("/buscar-residente")
+@router.api_route("/buscar-residente", methods=["GET", "POST"])
 async def buscar_residente(
-    apartamento: str = Query(..., description="Numero de casa o apartamento"),
+    request: Request,
+    apartamento: Optional[str] = Query(None, description="Numero de casa o apartamento"),
+    nombre: Optional[str] = Query(None, description="Nombre del residente"),
 ):
     """
-    Busca informacion de un residente por apartamento.
+    Busca residentes por apartamento O por nombre.
 
-    Util para el agente cuando necesita verificar si existe
-    un residente en determinado apartamento.
+    IMPORTANTE: Usar este endpoint ANTES de notificar para verificar
+    que existe el residente y obtener información correcta.
+
+    Casos manejados:
+    - Búsqueda por apartamento: Retorna el residente de esa casa
+    - Búsqueda por nombre: Si hay múltiples, pide más información
+    - Sin resultados: Indica que no se encontró
     """
-    logger.info(f"Buscando residente: apartamento={apartamento}")
+    body = await log_request(request, "/buscar-residente")
 
-    # TODO: Implementar busqueda real en Supabase
-    # Por ahora, retornamos mock
+    apt = body.get("apartamento") or apartamento
+    nombre_buscar = body.get("nombre") or nombre
 
-    return {
-        "encontrado": True,
-        "apartamento": apartamento,
-        "residente_nombre": "Maria Garcia",
-        "telefono_registrado": True,
-    }
+    logger.info(f"🔍 Buscando residente: apartamento={apt}, nombre={nombre_buscar}")
+
+    try:
+        supabase = get_supabase()
+        if supabase is None:
+            logger.warning("Supabase no configurado")
+            return JSONResponse(
+                content={
+                    "encontrado": False,
+                    "mensaje": "Base de datos no disponible",
+                    "result": "No puedo acceder a la base de datos en este momento. Por favor intente más tarde.",
+                },
+                headers=ULTRAVOX_HEADERS
+            )
+
+        # CASO 1: Búsqueda por apartamento (más específica)
+        if apt:
+            apt_normalized = normalize_text(apt) if apt else ""
+
+            # Buscar por apartamento
+            result = supabase.table("residents").select(
+                "id, full_name, apartment, phone"
+            ).ilike("apartment", f"%{apt_normalized}%").eq("is_active", True).execute()
+
+            if not result.data or len(result.data) == 0:
+                logger.info(f"❌ No se encontró residente en {apt}")
+                return JSONResponse(
+                    content={
+                        "encontrado": False,
+                        "cantidad": 0,
+                        "mensaje": f"No hay ningún residente registrado en {apt}.",
+                        "result": f"No encontré ningún residente registrado en la casa o apartamento {apt}. ¿Podría verificar el número?",
+                    },
+                    headers=ULTRAVOX_HEADERS
+                )
+
+            # Seleccionar el mejor match por número
+            apt_numbers = ''.join(filter(str.isdigit, apt_normalized))
+            mejor_match = None
+            for r in result.data:
+                apt_db_numbers = ''.join(filter(str.isdigit, r.get("apartment", "")))
+                if apt_numbers and apt_db_numbers == apt_numbers:
+                    mejor_match = r
+                    break
+
+            if not mejor_match:
+                mejor_match = result.data[0]
+
+            logger.info(f"✅ Encontrado: {mejor_match.get('full_name')} en {mejor_match.get('apartment')}")
+            return JSONResponse(
+                content={
+                    "encontrado": True,
+                    "cantidad": 1,
+                    "residente": {
+                        "nombre": mejor_match.get("full_name"),
+                        "apartamento": mejor_match.get("apartment"),
+                        "tiene_telefono": bool(mejor_match.get("phone")),
+                    },
+                    "mensaje": f"Encontré a {mejor_match.get('full_name')} en {mejor_match.get('apartment')}.",
+                    "result": f"Encontré a {mejor_match.get('full_name')} registrado en {mejor_match.get('apartment')}. ¿Desea que le notifique?",
+                },
+                headers=ULTRAVOX_HEADERS
+            )
+
+        # CASO 2: Búsqueda por nombre (puede ser ambigua)
+        elif nombre_buscar:
+            nombre_normalized = normalize_text(nombre_buscar)
+            primer_nombre = nombre_normalized.split()[0] if nombre_normalized else ""
+
+            logger.info(f"🔍 Buscando por nombre: '{nombre_normalized}' (primer nombre: '{primer_nombre}')")
+
+            # Buscar por nombre
+            result = supabase.table("residents").select(
+                "id, full_name, apartment, phone"
+            ).ilike("full_name", f"%{primer_nombre}%").eq("is_active", True).execute()
+
+            if not result.data or len(result.data) == 0:
+                logger.info(f"❌ No se encontró residente con nombre {nombre_buscar}")
+                return JSONResponse(
+                    content={
+                        "encontrado": False,
+                        "cantidad": 0,
+                        "mensaje": f"No encontré ningún residente con el nombre {nombre_buscar}.",
+                        "result": f"No encontré ningún residente registrado con el nombre {nombre_buscar}. ¿Tiene el número de casa o apartamento?",
+                    },
+                    headers=ULTRAVOX_HEADERS
+                )
+
+            # UN SOLO RESULTADO - perfecto
+            if len(result.data) == 1:
+                residente = result.data[0]
+                logger.info(f"✅ Un solo match: {residente.get('full_name')}")
+                return JSONResponse(
+                    content={
+                        "encontrado": True,
+                        "cantidad": 1,
+                        "residente": {
+                            "nombre": residente.get("full_name"),
+                            "apartamento": residente.get("apartment"),
+                            "tiene_telefono": bool(residente.get("phone")),
+                        },
+                        "mensaje": f"Encontré a {residente.get('full_name')} en {residente.get('apartment')}.",
+                        "result": f"Encontré a {residente.get('full_name')} en {residente.get('apartment')}. ¿Desea que le notifique?",
+                    },
+                    headers=ULTRAVOX_HEADERS
+                )
+
+            # MÚLTIPLES RESULTADOS - necesita más información
+            logger.info(f"⚠️ Múltiples matches ({len(result.data)}) para '{nombre_buscar}'")
+            nombres_encontrados = [r.get("full_name") for r in result.data[:5]]  # Máximo 5
+
+            return JSONResponse(
+                content={
+                    "encontrado": True,
+                    "cantidad": len(result.data),
+                    "ambiguo": True,
+                    "residentes": [
+                        {"nombre": r.get("full_name"), "apartamento": r.get("apartment")}
+                        for r in result.data[:5]
+                    ],
+                    "mensaje": f"Hay {len(result.data)} residentes con ese nombre. Necesito más información.",
+                    "result": f"Encontré {len(result.data)} personas con el nombre {nombre_buscar}. ¿Sabe el apellido o el número de casa para poder identificar a la persona correcta?",
+                },
+                headers=ULTRAVOX_HEADERS
+            )
+
+        # CASO 3: Sin parámetros suficientes
+        else:
+            return JSONResponse(
+                content={
+                    "encontrado": False,
+                    "mensaje": "Necesito el número de casa/apartamento o el nombre del residente.",
+                    "result": "Para poder ayudarle necesito saber a quién busca. ¿Tiene el número de casa o el nombre de la persona?",
+                },
+                headers=ULTRAVOX_HEADERS
+            )
+
+    except Exception as e:
+        logger.error(f"❌ Error buscando residente: {e}")
+        return JSONResponse(
+            content={
+                "encontrado": False,
+                "mensaje": f"Error en la búsqueda: {str(e)}",
+                "result": "Hubo un problema técnico al buscar. Por favor intente nuevamente.",
+            },
+            headers=ULTRAVOX_HEADERS
+        )
 
 
 @router.api_route("/estado-autorizacion", methods=["GET", "POST"])
