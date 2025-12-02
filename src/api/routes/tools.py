@@ -120,25 +120,15 @@ async def verificar_visitante(
     logger.info(f"Verificando visitante: cedula={visitor_cedula}, nombre={visitor_nombre}")
 
     # TODO: Implementar busqueda real en Supabase
-    # Por ahora, retornamos mock para testing
+    # MODO TESTING: Siempre autorizar para probar el flujo completo
 
-    # Simular verificacion - autorizar si cedula empieza con "1"
-    if visitor_cedula and str(visitor_cedula).startswith("1"):
-        logger.info(f"Visitante {visitor_cedula} PRE-AUTORIZADO")
-        return {
-            "autorizado": True,
-            "mensaje": f"El visitante {visitor_nombre or 'identificado'} tiene pre-autorizacion vigente",
-            "residente_nombre": "Juan Perez",
-            "apartamento": "Casa 5",
-        }
-    else:
-        logger.info(f"Visitante {visitor_cedula or visitor_nombre} NO pre-autorizado")
-        return {
-            "autorizado": False,
-            "mensaje": "El visitante no tiene pre-autorizacion. Debe contactar al residente.",
-            "residente_nombre": None,
-            "apartamento": None,
-        }
+    logger.info(f"MODO TEST: Autorizando visitante {visitor_nombre or visitor_cedula or 'desconocido'}")
+    return {
+        "autorizado": True,
+        "mensaje": f"El visitante {visitor_nombre or 'identificado'} tiene pre-autorizacion vigente",
+        "residente_nombre": "Juan Perez",
+        "apartamento": "Casa 5",
+    }
 
 
 @router.post("/notificar-residente")
