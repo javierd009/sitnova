@@ -12,12 +12,19 @@ Flujo:
 5. El agente recibe la respuesta y continua la conversacion
 """
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Any
 from datetime import datetime
 from loguru import logger
 import json
 import unicodedata
+
+
+# Headers para Ultravox - indica que el agente debe hablar después del tool
+ULTRAVOX_HEADERS = {
+    "X-Ultravox-Agent-Reaction": "AGENT_REACTION_SPEAKS"
+}
 
 from src.database.connection import get_supabase
 from src.config.settings import settings
@@ -244,11 +251,15 @@ async def notificar_residente(
         supabase = get_supabase()
         if supabase is None:
             logger.warning("Supabase no configurado, usando modo mock")
-            return {
-                "enviado": True,
-                "mensaje": f"MOCK: Notificación enviada al residente de {apt}.",
-                "metodo": "mock",
-            }
+            return JSONResponse(
+                content={
+                    "enviado": True,
+                    "mensaje": f"MOCK: Notificación enviada al residente de {apt}.",
+                    "metodo": "mock",
+                    "result": f"He notificado al residente de {apt}. Por favor espere.",
+                },
+                headers=ULTRAVOX_HEADERS
+            )
 
         # Buscar residente por apartamento (normalizar para búsqueda flexible)
         apt_normalized = normalize_text(apt) if apt else ""
@@ -258,12 +269,15 @@ async def notificar_residente(
 
         if not result.data or len(result.data) == 0:
             logger.warning(f"Residente no encontrado para apartamento: {apt}")
-            return {
-                "enviado": False,
-                "mensaje": f"No se encontró residente en {apt}. Verifique el número.",
-                "metodo": "ninguno",
-                "result": f"No encontré ningún residente registrado en {apt}. ¿Podría verificar el número de casa o apartamento?",
-            }
+            return JSONResponse(
+                content={
+                    "enviado": False,
+                    "mensaje": f"No se encontró residente en {apt}. Verifique el número.",
+                    "metodo": "ninguno",
+                    "result": f"No encontré ningún residente registrado en {apt}. ¿Podría verificar el número de casa o apartamento?",
+                },
+                headers=ULTRAVOX_HEADERS
+            )
 
         resident = result.data[0]
         resident_name = resident.get("full_name", "Residente")
@@ -312,28 +326,37 @@ async def notificar_residente(
         #     metodos_usados.append("llamada")
 
         if not metodos_usados:
-            return {
-                "enviado": False,
-                "mensaje": f"No se pudo notificar al residente de {apt}. Sin WhatsApp configurado.",
-                "metodo": "ninguno",
-                "result": f"No fue posible contactar al residente de {apt}. No tiene WhatsApp configurado. Por favor intente comunicarse de otra forma.",
-            }
+            return JSONResponse(
+                content={
+                    "enviado": False,
+                    "mensaje": f"No se pudo notificar al residente de {apt}. Sin WhatsApp configurado.",
+                    "metodo": "ninguno",
+                    "result": f"No fue posible contactar al residente de {apt}. No tiene WhatsApp configurado. Por favor intente comunicarse de otra forma.",
+                },
+                headers=ULTRAVOX_HEADERS
+            )
 
-        return {
-            "enviado": True,
-            "mensaje": f"Notificación enviada a {resident_name} ({apt}). Por favor espere la autorización.",
-            "metodo": ", ".join(metodos_usados),
-            "result": f"He enviado una notificación por WhatsApp al residente de {apt}. Por favor espere un momento mientras confirma si autoriza su ingreso.",
-        }
+        return JSONResponse(
+            content={
+                "enviado": True,
+                "mensaje": f"Notificación enviada a {resident_name} ({apt}). Por favor espere la autorización.",
+                "metodo": ", ".join(metodos_usados),
+                "result": f"He enviado una notificación por WhatsApp al residente de {apt}. Por favor espere un momento mientras confirma si autoriza su ingreso.",
+            },
+            headers=ULTRAVOX_HEADERS
+        )
 
     except Exception as e:
         logger.error(f"Error notificando residente: {e}")
-        return {
-            "enviado": False,
-            "mensaje": f"Error al notificar: {str(e)}",
-            "metodo": "error",
-            "result": "Hubo un problema técnico al intentar contactar al residente. Por favor intente nuevamente en unos momentos.",
-        }
+        return JSONResponse(
+            content={
+                "enviado": False,
+                "mensaje": f"Error al notificar: {str(e)}",
+                "metodo": "error",
+                "result": "Hubo un problema técnico al intentar contactar al residente. Por favor intente nuevamente en unos momentos.",
+            },
+            headers=ULTRAVOX_HEADERS
+        )
 
 
 @router.post("/abrir-porton")
