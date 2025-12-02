@@ -274,14 +274,24 @@ async def notificar_residente(
                 headers=ULTRAVOX_HEADERS
             )
 
-        # Buscar residente por apartamento (normalizar para búsqueda flexible)
+        # Buscar residente por apartamento
         apt_normalized = normalize_text(apt) if apt else ""
+        logger.info(f"🔍 Buscando residente para apartamento: '{apt}' (normalizado: '{apt_normalized}')")
+
+        # Primero intentar búsqueda exacta (case-insensitive)
         result = supabase.table("residents").select(
             "id, full_name, apartment, phone, phone_secondary, notification_preference"
-        ).ilike("apartment", f"%{apt_normalized}%").eq("is_active", True).limit(1).execute()
+        ).ilike("apartment", apt_normalized).eq("is_active", True).execute()
+
+        # Si no hay match exacto, buscar con patrón más flexible
+        if not result.data or len(result.data) == 0:
+            logger.info(f"🔍 No hay match exacto, buscando con patrón flexible...")
+            result = supabase.table("residents").select(
+                "id, full_name, apartment, phone, phone_secondary, notification_preference"
+            ).ilike("apartment", f"%{apt_normalized}%").eq("is_active", True).execute()
 
         if not result.data or len(result.data) == 0:
-            logger.warning(f"Residente no encontrado para apartamento: {apt}")
+            logger.warning(f"❌ Residente no encontrado para apartamento: {apt}")
             return JSONResponse(
                 content={
                     "enviado": False,
@@ -292,13 +302,51 @@ async def notificar_residente(
                 headers=ULTRAVOX_HEADERS
             )
 
-        resident = result.data[0]
+        # Si hay múltiples resultados, buscar el más específico
+        logger.info(f"📋 Resultados encontrados: {len(result.data)}")
+        for r in result.data:
+            logger.info(f"   - {r.get('full_name')}: {r.get('apartment')} -> {r.get('phone')}")
+
+        # Seleccionar el mejor match
+        resident = None
+        apt_lower = apt_normalized.lower().replace(" ", "")
+
+        # Primero buscar match exacto
+        for r in result.data:
+            apt_db = r.get("apartment", "").lower().replace(" ", "")
+            if apt_db == apt_lower:
+                resident = r
+                logger.info(f"✅ Match exacto encontrado: {r.get('full_name')}")
+                break
+
+        # Si no hay exacto, buscar el que contenga el número
+        if not resident:
+            # Extraer solo números del apartamento buscado
+            apt_numbers = ''.join(filter(str.isdigit, apt_normalized))
+            for r in result.data:
+                apt_db = r.get("apartment", "").lower().replace(" ", "")
+                apt_db_numbers = ''.join(filter(str.isdigit, apt_db))
+                # Match si los números son exactamente iguales
+                if apt_numbers and apt_db_numbers == apt_numbers:
+                    resident = r
+                    logger.info(f"✅ Match por número encontrado: {r.get('full_name')} (números: {apt_numbers})")
+                    break
+
+        # Si aún no hay match, usar el primero pero advertir
+        if not resident:
+            resident = result.data[0]
+            logger.warning(f"⚠️ Usando primer resultado (puede no ser exacto): {resident.get('full_name')}")
         resident_name = resident.get("full_name", "Residente")
+        resident_apt = resident.get("apartment", "?")
         whatsapp_number = resident.get("phone") or resident.get("phone_secondary")
         notification_pref = resident.get("notification_preference", "whatsapp")
         notify_whatsapp = notification_pref in ["whatsapp", "both", None]
 
-        logger.info(f"Residente encontrado: {resident_name}, WhatsApp: {whatsapp_number}, Notificar WA: {notify_whatsapp}")
+        logger.info(f"📱 RESIDENTE SELECCIONADO:")
+        logger.info(f"   Nombre: {resident_name}")
+        logger.info(f"   Apartamento: {resident_apt}")
+        logger.info(f"   Teléfono: {whatsapp_number}")
+        logger.info(f"   Preferencia: {notification_pref}")
 
         metodos_usados = []
 
