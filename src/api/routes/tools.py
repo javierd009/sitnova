@@ -156,27 +156,28 @@ async def verificar_visitante(
         now = datetime.now().isoformat()
 
         # Buscar en pre_authorized_visitors
+        # Schema real: visitor_name, cedula, resident_id, valid_from, valid_until
         query = supabase.table("pre_authorized_visitors").select(
-            "*, residents(full_name, unit_number, whatsapp_number)"
-        ).eq("is_active", True).lte("valid_from", now).gte("valid_until", now)
+            "*, residents(full_name, apartment, phone)"
+        ).eq("used", False).lte("valid_from", now).gte("valid_until", now)
 
         # Filtrar por nombre o cedula
         if visitor_cedula and visitor_cedula != "null":
-            query = query.eq("id_number", visitor_cedula)
+            query = query.eq("cedula", visitor_cedula)
         elif visitor_nombre:
-            query = query.ilike("full_name", f"%{visitor_nombre}%")
+            query = query.ilike("visitor_name", f"%{visitor_nombre}%")
 
         result = query.execute()
 
         if result.data and len(result.data) > 0:
             visitor = result.data[0]
             resident = visitor.get("residents", {})
-            logger.info(f"Visitante PRE-AUTORIZADO encontrado: {visitor.get('full_name')}")
+            logger.info(f"Visitante PRE-AUTORIZADO encontrado: {visitor.get('visitor_name')}")
             return {
                 "autorizado": True,
-                "mensaje": f"El visitante {visitor.get('full_name')} tiene pre-autorizacion vigente",
+                "mensaje": f"El visitante {visitor.get('visitor_name')} tiene pre-autorizacion vigente",
                 "residente_nombre": resident.get("full_name") if resident else None,
-                "apartamento": resident.get("unit_number") if resident else None,
+                "apartamento": resident.get("apartment") if resident else None,
             }
         else:
             logger.info(f"Visitante NO encontrado en pre-autorizados")
