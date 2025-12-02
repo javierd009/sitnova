@@ -178,7 +178,11 @@ async def verificar_visitante(
             # Normalize name to remove accents for matching
             nombre_normalizado = normalize_text(visitor_nombre)
             logger.info(f"Buscando nombre normalizado: {nombre_normalizado}")
-            query = query.ilike("visitor_name", f"%{nombre_normalizado}%")
+
+            # Buscar por primer nombre para mayor flexibilidad con speech-to-text
+            primer_nombre = nombre_normalizado.split()[0] if nombre_normalizado else ""
+            logger.info(f"Buscando por primer nombre: {primer_nombre}")
+            query = query.ilike("visitor_name", f"%{primer_nombre}%")
 
         result = query.execute()
 
