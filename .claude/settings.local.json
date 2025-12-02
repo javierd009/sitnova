@@ -19,7 +19,11 @@
       "Bash(for i in 1 2 3 4 5)",
       "Bash(do echo \"Intento $i:\")",
       "Bash(done)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(git checkout:*)",
+      "Bash(git restore:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []

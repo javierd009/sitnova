@@ -253,11 +253,9 @@ async def notificar_residente(
         # Buscar residente por apartamento (normalizar para búsqueda flexible)
         apt_normalized = normalize_text(apt) if apt else ""
         result = supabase.table("residents").select(
-            "id, full_name, apartment, phone_primary, phone_mobile, whatsapp_number, "
+            "id, full_name, unit_number, phone_primary, phone_mobile, whatsapp_number, "
             "notify_via_whatsapp, pbx_extension"
-        ).or_(
-            f"apartment.ilike.%{apt_normalized}%,unit_number.ilike.%{apt_normalized}%"
-        ).eq("is_active", True).limit(1).execute()
+        ).ilike("unit_number", f"%{apt_normalized}%").eq("is_active", True).limit(1).execute()
 
         if not result.data or len(result.data) == 0:
             logger.warning(f"Residente no encontrado para apartamento: {apt}")
