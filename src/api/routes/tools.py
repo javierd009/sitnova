@@ -18,6 +18,8 @@ from datetime import datetime
 from loguru import logger
 import json
 
+from src.database.connection import get_supabase
+
 router = APIRouter()
 
 # ============================================
@@ -139,16 +141,61 @@ async def verificar_visitante(
 
     logger.info(f"Verificando visitante: cedula={visitor_cedula}, nombre={visitor_nombre}")
 
-    # TODO: Implementar busqueda real en Supabase
-    # MODO TESTING: Siempre autorizar para probar el flujo completo
+    # Buscar en Supabase
+    try:
+        supabase = get_supabase()
+        if supabase is None:
+            logger.warning("Supabase no configurado, usando modo mock")
+            return {
+                "autorizado": True,
+                "mensaje": f"MOCK: El visitante {visitor_nombre or 'identificado'} autorizado (Supabase no configurado)",
+                "residente_nombre": "Juan Perez",
+                "apartamento": "Casa 5",
+            }
 
-    logger.info(f"MODO TEST: Autorizando visitante {visitor_nombre or visitor_cedula or 'desconocido'}")
-    return {
-        "autorizado": True,
-        "mensaje": f"El visitante {visitor_nombre or 'identificado'} tiene pre-autorizacion vigente",
-        "residente_nombre": "Juan Perez",
-        "apartamento": "Casa 5",
-    }
+        now = datetime.now().isoformat()
+
+        # Buscar en pre_authorized_visitors
+        query = supabase.table("pre_authorized_visitors").select(
+            "*, residents(full_name, unit_number, whatsapp_number)"
+        ).eq("is_active", True).lte("valid_from", now).gte("valid_until", now)
+
+        # Filtrar por nombre o cedula
+        if visitor_cedula and visitor_cedula != "null":
+            query = query.eq("id_number", visitor_cedula)
+        elif visitor_nombre:
+            query = query.ilike("full_name", f"%{visitor_nombre}%")
+
+        result = query.execute()
+
+        if result.data and len(result.data) > 0:
+            visitor = result.data[0]
+            resident = visitor.get("residents", {})
+            logger.info(f"Visitante PRE-AUTORIZADO encontrado: {visitor.get('full_name')}")
+            return {
+                "autorizado": True,
+                "mensaje": f"El visitante {visitor.get('full_name')} tiene pre-autorizacion vigente",
+                "residente_nombre": resident.get("full_name") if resident else None,
+                "apartamento": resident.get("unit_number") if resident else None,
+            }
+        else:
+            logger.info(f"Visitante NO encontrado en pre-autorizados")
+            return {
+                "autorizado": False,
+                "mensaje": "El visitante no tiene pre-autorizacion. Debe contactar al residente.",
+                "residente_nombre": None,
+                "apartamento": None,
+            }
+
+    except Exception as e:
+        logger.error(f"Error buscando en Supabase: {e}")
+        # Fallback a mock en caso de error
+        return {
+            "autorizado": False,
+            "mensaje": f"Error verificando visitante: {str(e)}",
+            "residente_nombre": None,
+            "apartamento": None,
+        }
 
 
 @router.post("/notificar-residente")
