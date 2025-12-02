@@ -253,9 +253,8 @@ async def notificar_residente(
         # Buscar residente por apartamento (normalizar para búsqueda flexible)
         apt_normalized = normalize_text(apt) if apt else ""
         result = supabase.table("residents").select(
-            "id, full_name, unit_number, phone_primary, phone_mobile, whatsapp_number, "
-            "notify_via_whatsapp, pbx_extension"
-        ).ilike("unit_number", f"%{apt_normalized}%").eq("is_active", True).limit(1).execute()
+            "id, full_name, apartment, phone, phone_secondary, notification_preference"
+        ).ilike("apartment", f"%{apt_normalized}%").eq("is_active", True).limit(1).execute()
 
         if not result.data or len(result.data) == 0:
             logger.warning(f"Residente no encontrado para apartamento: {apt}")
@@ -267,9 +266,9 @@ async def notificar_residente(
 
         resident = result.data[0]
         resident_name = resident.get("full_name", "Residente")
-        whatsapp_number = resident.get("whatsapp_number") or resident.get("phone_mobile") or resident.get("phone_primary")
-        notify_whatsapp = resident.get("notify_via_whatsapp", True)
-        pbx_extension = resident.get("pbx_extension")
+        whatsapp_number = resident.get("phone") or resident.get("phone_secondary")
+        notification_pref = resident.get("notification_preference", "whatsapp")
+        notify_whatsapp = notification_pref in ["whatsapp", "both", None]
 
         logger.info(f"Residente encontrado: {resident_name}, WhatsApp: {whatsapp_number}, Notificar WA: {notify_whatsapp}")
 
@@ -306,8 +305,8 @@ async def notificar_residente(
             except Exception as e:
                 logger.error(f"Error con Evolution API: {e}")
 
-        # TODO: Agregar notificación por llamada si pbx_extension está configurado
-        # if pbx_extension and not notify_whatsapp:
+        # TODO: Agregar notificación por llamada si notification_preference es "call"
+        # if notification_pref in ["call", "both"]:
         #     # Originar llamada via AsterSIPVox
         #     metodos_usados.append("llamada")
 
