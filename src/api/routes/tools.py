@@ -20,6 +20,8 @@ import json
 import unicodedata
 
 from src.database.connection import get_supabase
+from src.config.settings import settings
+from src.services.messaging.evolution_client import create_evolution_client, EvolutionConfig
 
 
 def normalize_text(text: str) -> str:
@@ -225,6 +227,10 @@ async def notificar_residente(
     """
     Envia notificacion al residente para autorizar visita.
     Acepta parametros via body JSON o query params.
+
+    Busca el residente por apartamento y envía notificación según su preferencia:
+    - WhatsApp (Evolution API)
+    - Llamada telefónica (próximamente)
     """
     body = await log_request(request, "/notificar-residente")
 
@@ -233,13 +239,100 @@ async def notificar_residente(
 
     logger.info(f"Notificando residente: apt={apt}, visitante={visitante}")
 
-    # TODO: Implementar notificacion real via Evolution API
+    # Buscar residente en Supabase
+    try:
+        supabase = get_supabase()
+        if supabase is None:
+            logger.warning("Supabase no configurado, usando modo mock")
+            return {
+                "enviado": True,
+                "mensaje": f"MOCK: Notificación enviada al residente de {apt}.",
+                "metodo": "mock",
+            }
 
-    return {
-        "enviado": True,
-        "mensaje": f"Notificacion enviada al residente de {apt}. Por favor espere la autorizacion.",
-        "metodo": "whatsapp",
-    }
+        # Buscar residente por apartamento (normalizar para búsqueda flexible)
+        apt_normalized = normalize_text(apt) if apt else ""
+        result = supabase.table("residents").select(
+            "id, full_name, apartment, phone_primary, phone_mobile, whatsapp_number, "
+            "notify_via_whatsapp, pbx_extension"
+        ).or_(
+            f"apartment.ilike.%{apt_normalized}%,unit_number.ilike.%{apt_normalized}%"
+        ).eq("is_active", True).limit(1).execute()
+
+        if not result.data or len(result.data) == 0:
+            logger.warning(f"Residente no encontrado para apartamento: {apt}")
+            return {
+                "enviado": False,
+                "mensaje": f"No se encontró residente en {apt}. Verifique el número.",
+                "metodo": "ninguno",
+            }
+
+        resident = result.data[0]
+        resident_name = resident.get("full_name", "Residente")
+        whatsapp_number = resident.get("whatsapp_number") or resident.get("phone_mobile") or resident.get("phone_primary")
+        notify_whatsapp = resident.get("notify_via_whatsapp", True)
+        pbx_extension = resident.get("pbx_extension")
+
+        logger.info(f"Residente encontrado: {resident_name}, WhatsApp: {whatsapp_number}, Notificar WA: {notify_whatsapp}")
+
+        metodos_usados = []
+
+        # Enviar por WhatsApp si está habilitado
+        if notify_whatsapp and whatsapp_number:
+            try:
+                # Crear cliente Evolution
+                evolution = create_evolution_client(
+                    base_url=settings.evolution_api_url,
+                    api_key=settings.evolution_api_key,
+                    instance_name=settings.evolution_instance_name,
+                    use_mock=(not settings.evolution_api_key)
+                )
+
+                # Mensaje de notificación
+                mensaje_wa = (
+                    f"🚪 *Visita en portería*\n\n"
+                    f"Hay una persona esperando en la entrada:\n"
+                    f"👤 *Nombre:* {visitante}\n"
+                    f"🏠 *Destino:* {apt}\n\n"
+                    f"Por favor confirme si autoriza el acceso."
+                )
+
+                result_wa = evolution.send_text(whatsapp_number, mensaje_wa)
+
+                if result_wa.get("success"):
+                    logger.success(f"WhatsApp enviado a {whatsapp_number}")
+                    metodos_usados.append("whatsapp")
+                else:
+                    logger.error(f"Error enviando WhatsApp: {result_wa.get('error')}")
+
+            except Exception as e:
+                logger.error(f"Error con Evolution API: {e}")
+
+        # TODO: Agregar notificación por llamada si pbx_extension está configurado
+        # if pbx_extension and not notify_whatsapp:
+        #     # Originar llamada via AsterSIPVox
+        #     metodos_usados.append("llamada")
+
+        if not metodos_usados:
+            return {
+                "enviado": False,
+                "mensaje": f"No se pudo notificar al residente de {apt}. Sin WhatsApp configurado.",
+                "metodo": "ninguno",
+            }
+
+        return {
+            "enviado": True,
+            "mensaje": f"Notificación enviada a {resident_name} ({apt}). Por favor espere la autorización.",
+            "metodo": ", ".join(metodos_usados),
+        }
+
+    except Exception as e:
+        logger.error(f"Error notificando residente: {e}")
+        return {
+            "enviado": False,
+            "mensaje": f"Error al notificar: {str(e)}",
+            "metodo": "error",
+        }
 
 
 @router.post("/abrir-porton")
