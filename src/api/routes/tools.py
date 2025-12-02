@@ -29,6 +29,7 @@ ULTRAVOX_HEADERS = {
 from src.database.connection import get_supabase
 from src.config.settings import settings
 from src.services.messaging.evolution_client import create_evolution_client, EvolutionConfig
+from src.api.routes.auth_state import set_pending_authorization, get_authorization_by_apartment
 
 
 def normalize_text(text: str) -> str:
@@ -314,6 +315,8 @@ async def notificar_residente(
                 if result_wa.get("success"):
                     logger.success(f"WhatsApp enviado a {whatsapp_number}")
                     metodos_usados.append("whatsapp")
+                    # Guardar autorización pendiente para tracking
+                    set_pending_authorization(whatsapp_number, apt, visitante)
                 else:
                     logger.error(f"Error enviando WhatsApp: {result_wa.get('error')}")
 
@@ -431,7 +434,8 @@ async def buscar_residente(
 
 @router.get("/estado-autorizacion")
 async def estado_autorizacion(
-    session_id: str = Query(..., description="ID de sesion de la visita"),
+    apartamento: Optional[str] = Query(None, description="Numero de apartamento"),
+    session_id: Optional[str] = Query(None, description="ID de sesion de la visita"),
 ):
     """
     Consulta el estado de una autorizacion pendiente.
@@ -439,15 +443,48 @@ async def estado_autorizacion(
     Cuando el agente envia notificacion al residente, puede
     consultar periodicamente si ya respondio.
     """
-    logger.info(f"Consultando estado: session={session_id}")
+    logger.info(f"Consultando estado: apartamento={apartamento}, session={session_id}")
 
-    # TODO: Implementar consulta real de estado
-    # Por ahora, retornamos mock
+    # Buscar por apartamento si se proporciona
+    if apartamento:
+        key, auth = get_authorization_by_apartment(apartamento)
+        if auth:
+            status = auth.get("status", "pendiente")
+            visitor = auth.get("visitor_name", "desconocido")
 
+            if status == "autorizado":
+                return {
+                    "apartamento": apartamento,
+                    "estado": "autorizado",
+                    "mensaje": f"El residente ha AUTORIZADO el acceso del visitante {visitor}. Puede abrir el portón.",
+                    "visitor_name": visitor,
+                }
+            elif status == "denegado":
+                return {
+                    "apartamento": apartamento,
+                    "estado": "denegado",
+                    "mensaje": f"El residente ha DENEGADO el acceso del visitante {visitor}.",
+                    "visitor_name": visitor,
+                }
+            else:
+                return {
+                    "apartamento": apartamento,
+                    "estado": "pendiente",
+                    "mensaje": f"Esperando respuesta del residente de {apartamento}.",
+                    "visitor_name": visitor,
+                }
+        else:
+            return {
+                "apartamento": apartamento,
+                "estado": "no_encontrado",
+                "mensaje": f"No hay autorización pendiente para {apartamento}.",
+            }
+
+    # Fallback si no hay apartamento
     return {
         "session_id": session_id,
-        "estado": "pendiente",  # pendiente, autorizado, denegado
-        "mensaje": "Esperando respuesta del residente",
+        "estado": "pendiente",
+        "mensaje": "Especifique el apartamento para consultar el estado.",
     }
 
 
@@ -472,3 +509,23 @@ async def limpiar_diagnostico():
     """Limpia el log de llamadas."""
     tool_calls_log.clear()
     return {"message": "Log limpiado", "total_calls": 0}
+
+
+@router.get("/autorizaciones-pendientes")
+async def ver_autorizaciones():
+    """
+    Debug: Ver todas las autorizaciones pendientes.
+    Útil para verificar que el flujo de WhatsApp está funcionando.
+    """
+    from src.api.routes.auth_state import get_all_authorizations, clear_old_authorizations
+
+    # Limpiar autorizaciones viejas (más de 30 min)
+    cleared = clear_old_authorizations(30)
+
+    auths = get_all_authorizations()
+    return {
+        "total": len(auths),
+        "autorizaciones_limpiadas": cleared,
+        "autorizaciones": auths,
+        "mensaje": "Use /webhooks/evolution/autorizaciones para la misma info"
+    }

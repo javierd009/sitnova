@@ -14,6 +14,11 @@ from src.services.voice.webhook_handler import (
     verify_ultravox_signature,
     get_active_sessions,
 )
+from src.api.routes.auth_state import (
+    get_pending_authorization,
+    update_authorization,
+    get_all_authorizations,
+)
 
 router = APIRouter()
 
@@ -108,6 +113,7 @@ async def hikvision_events(request: Request):
 # ============================================
 # EVOLUTION API (WhatsApp) WEBHOOKS
 # ============================================
+# Funciones de auth_state compartidas con tools.py
 
 @router.post("/evolution/whatsapp")
 async def evolution_webhook(request: Request):
@@ -115,14 +121,78 @@ async def evolution_webhook(request: Request):
     Webhook para respuestas de WhatsApp (Evolution API).
 
     Usado para capturar respuestas de residentes a autorizaciones.
+    Evolution API envía eventos como:
+    - messages.upsert: Mensaje recibido
     """
     payload = await request.json()
     event = payload.get("event")
 
     logger.info(f"💬 WhatsApp webhook: {event}")
+    logger.debug(f"Payload: {payload}")
 
-    # TODO: Procesar respuesta del residente
-    # - "SÍ" o "1" → Autorizar acceso
-    # - "NO" o "2" → Denegar acceso
+    # Procesar solo mensajes entrantes
+    if event == "messages.upsert":
+        data = payload.get("data", {})
+        message = data.get("message", {})
 
-    return {"status": "received"}
+        # Obtener info del mensaje
+        remote_jid = data.get("key", {}).get("remoteJid", "")
+        from_me = data.get("key", {}).get("fromMe", True)
+        text = message.get("conversation") or message.get("extendedTextMessage", {}).get("text", "")
+
+        # Solo procesar mensajes entrantes (no los que enviamos nosotros)
+        if from_me:
+            logger.debug("Ignorando mensaje propio")
+            return {"status": "ignored", "reason": "own_message"}
+
+        # Extraer número de teléfono
+        phone = remote_jid.replace("@s.whatsapp.net", "")
+
+        logger.info(f"📥 Mensaje de {phone}: {text}")
+
+        # Buscar autorización pendiente para este número
+        key, auth = get_pending_authorization(phone)
+
+        if auth and auth.get("status") == "pendiente":
+            text_lower = text.lower().strip()
+
+            # Detectar autorización o rechazo
+            if text_lower in ["si", "sí", "yes", "1", "ok", "autorizo", "autorizado", "dale", "pase"]:
+                update_authorization(phone, "autorizado")
+                logger.success(f"✅ Acceso AUTORIZADO por {phone}")
+                return {
+                    "status": "processed",
+                    "action": "authorized",
+                    "apartment": auth.get("apartment"),
+                    "visitor": auth.get("visitor_name"),
+                }
+
+            elif text_lower in ["no", "2", "negar", "denegado", "rechazar", "no autorizo"]:
+                update_authorization(phone, "denegado")
+                logger.warning(f"❌ Acceso DENEGADO por {phone}")
+                return {
+                    "status": "processed",
+                    "action": "denied",
+                    "apartment": auth.get("apartment"),
+                    "visitor": auth.get("visitor_name"),
+                }
+
+            else:
+                logger.info(f"Respuesta no reconocida: {text}")
+                return {"status": "unrecognized", "message": text}
+
+        else:
+            logger.info(f"No hay autorización pendiente para {phone}")
+            return {"status": "no_pending_auth"}
+
+    return {"status": "received", "event": event}
+
+
+@router.get("/evolution/autorizaciones")
+async def listar_autorizaciones():
+    """Debug: Ver autorizaciones pendientes."""
+    auths = get_all_authorizations()
+    return {
+        "total": len(auths),
+        "autorizaciones": auths,
+    }
