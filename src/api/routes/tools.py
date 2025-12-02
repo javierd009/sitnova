@@ -23,7 +23,7 @@ import unicodedata
 
 # Headers para Ultravox - indica que el agente debe hablar después del tool
 ULTRAVOX_HEADERS = {
-    "X-Ultravox-Agent-Reaction": "AGENT_REACTION_SPEAKS"
+    "X-Ultravox-Agent-Reaction": "speaks"
 }
 
 from src.database.connection import get_supabase
