@@ -20,6 +20,53 @@ from src.api.routes.auth_state import (
     update_authorization,
     get_all_authorizations,
 )
+import re
+
+
+def detectar_tipo_respuesta(texto: str) -> tuple[str, str]:
+    """
+    Detecta el tipo de respuesta del residente.
+
+    Returns:
+        tuple: (tipo, mensaje_original)
+        tipo puede ser: "autorizado", "denegado", "mensaje"
+    """
+    if not texto:
+        return "mensaje", ""
+
+    texto_lower = texto.lower().strip()
+    texto_original = texto.strip()
+
+    # Usar regex con word boundaries para evitar falsos positivos
+    # Palabras de autorización (deben ser palabras completas)
+    patrones_si = [
+        r'\bsi\b', r'\bsí\b', r'\byes\b', r'\bok\b', r'\bokay\b',
+        r'\bautorizo\b', r'\bautorizado\b', r'\bdale\b', r'\bpase\b',
+        r'\bdejalo\b', r'\bdéjalo\b', r'\bque pase\b', r'\badelante\b',
+        r'\bpermitido\b', r'\baprobado\b', r'\bclaro\b', r'\bbueno\b',
+        r'\bperfecto\b', r'\bsi,?\s*(que|pase|deja)', r'^1$'
+    ]
+
+    # Palabras de denegación
+    patrones_no = [
+        r'\bno\b', r'\bnegar\b', r'\bdenegado\b', r'\brechazar\b',
+        r'\brechazado\b', r'\bnegado\b', r'\bno autorizo\b',
+        r'\bno lo conozco\b', r'\bno dejar\b', r'\bno pase\b',
+        r'^2$'
+    ]
+
+    # Verificar autorización
+    for patron in patrones_si:
+        if re.search(patron, texto_lower):
+            return "autorizado", texto_original
+
+    # Verificar denegación
+    for patron in patrones_no:
+        if re.search(patron, texto_lower):
+            return "denegado", texto_original
+
+    # Si no coincide con ninguno, es mensaje personalizado
+    return "mensaje", texto_original
 
 router = APIRouter()
 
@@ -196,8 +243,23 @@ async def evolution_webhook(request: Request):
             logger.info("⏭️ Ignorando mensaje propio (fromMe=true)")
             return {"status": "ignored", "reason": "own_message"}
 
-        # Extraer número de teléfono (quitar @s.whatsapp.net)
-        phone = remote_jid.replace("@s.whatsapp.net", "").replace("@c.us", "")
+        # Extraer número de teléfono
+        # En chats individuales: remoteJid es el número (@s.whatsapp.net)
+        # En grupos: remoteJid es el grupo (@g.us), el número está en participant
+        phone = None
+
+        if "@g.us" in remote_jid:
+            # Es un mensaje de grupo - ignorar (no procesamos autorizaciones en grupos)
+            logger.info(f"⏭️ Ignorando mensaje de grupo: {remote_jid}")
+            return {"status": "ignored", "reason": "group_message"}
+        else:
+            # Chat individual - extraer número del remoteJid
+            phone = remote_jid.replace("@s.whatsapp.net", "").replace("@c.us", "")
+
+        if not phone:
+            logger.warning("⚠️ No se pudo extraer número de teléfono")
+            return {"status": "error", "reason": "no_phone_extracted"}
+
         logger.info(f"📞 Número extraído: {phone}")
 
         # Buscar autorización pendiente para este número
@@ -209,14 +271,13 @@ async def evolution_webhook(request: Request):
         logger.info(f"📋 Todas las autorizaciones pendientes: {all_auths}")
 
         if auth and auth.get("status") == "pendiente":
-            text_lower = text.lower().strip()
-            logger.info(f"🔄 Procesando respuesta: '{text_lower}'")
+            logger.info(f"🔄 Procesando respuesta: '{text}'")
 
-            # Detectar autorización (más palabras)
-            palabras_si = ["si", "sí", "yes", "1", "ok", "autorizo", "autorizado", "dale", "pase", "dejalo", "déjalo", "que pase", "adelante", "permitido", "aprobado"]
-            palabras_no = ["no", "2", "negar", "denegado", "rechazar", "no autorizo", "rechazado", "negado", "no lo conozco", "no dejar"]
+            # Usar función centralizada para detectar tipo de respuesta
+            tipo_respuesta, mensaje_original = detectar_tipo_respuesta(text)
+            logger.info(f"   📊 Tipo detectado: {tipo_respuesta}")
 
-            if any(palabra in text_lower for palabra in palabras_si):
+            if tipo_respuesta == "autorizado":
                 update_authorization(phone, "autorizado")
                 logger.success(f"✅ ACCESO AUTORIZADO por {phone} para {auth.get('apartment')}")
                 return {
@@ -227,7 +288,7 @@ async def evolution_webhook(request: Request):
                     "responded_by": phone,
                 }
 
-            elif any(palabra in text_lower for palabra in palabras_no):
+            elif tipo_respuesta == "denegado":
                 update_authorization(phone, "denegado")
                 logger.warning(f"❌ ACCESO DENEGADO por {phone} para {auth.get('apartment')}")
                 return {
@@ -240,8 +301,8 @@ async def evolution_webhook(request: Request):
 
             else:
                 # Mensaje personalizado del residente - guardarlo para que el agente lo comunique
-                logger.info(f"💬 Mensaje personalizado del residente: '{text}'")
-                update_authorization(phone, "mensaje", mensaje_personalizado=text)
+                logger.info(f"💬 Mensaje personalizado del residente: '{mensaje_original}'")
+                update_authorization(phone, "mensaje", mensaje_personalizado=mensaje_original)
                 logger.success(f"📝 MENSAJE PERSONALIZADO guardado de {phone} para {auth.get('apartment')}")
                 return {
                     "status": "processed",
@@ -249,7 +310,7 @@ async def evolution_webhook(request: Request):
                     "apartment": auth.get("apartment"),
                     "visitor": auth.get("visitor_name"),
                     "responded_by": phone,
-                    "mensaje_personalizado": text,
+                    "mensaje_personalizado": mensaje_original,
                     "hint": "El agente comunicará este mensaje al visitante"
                 }
 
@@ -366,21 +427,13 @@ async def simular_respuesta_residente(
             "auth": auth
         }
 
-    # Procesar respuesta
-    respuesta_lower = respuesta.lower().strip()
-    palabras_si = ["si", "sí", "yes", "1", "ok", "autorizo"]
-    palabras_no = ["no", "2", "negar", "denegado"]
-
-    if any(p in respuesta_lower for p in palabras_si):
-        status = "autorizado"
-    elif any(p in respuesta_lower for p in palabras_no):
-        status = "denegado"
-    else:
-        status = "mensaje"
+    # Procesar respuesta usando la función centralizada
+    status, mensaje_original = detectar_tipo_respuesta(respuesta)
+    logger.info(f"   Tipo detectado: {status}")
 
     # Actualizar
     if status == "mensaje":
-        success = update_authorization(phone, status, mensaje_personalizado=respuesta)
+        success = update_authorization(phone, status, mensaje_personalizado=mensaje_original)
     else:
         success = update_authorization(phone, status)
 
