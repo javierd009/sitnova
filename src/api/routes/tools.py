@@ -806,24 +806,6 @@ async def buscar_residente(
             if not nombre_clean and not apellido_clean:
                 nombre_clean = nombre_buscar.split()[0] if nombre_buscar else None
 
-            # NUEVO: Si solo hay nombre sin apellido, pedir el apellido
-            if nombre_clean and not apellido_clean:
-                # Verificar si el nombre solo tiene una palabra
-                palabras = nombre_buscar.strip().split()
-                if len(palabras) == 1:
-                    logger.info(f"⚠️ Solo se dio nombre '{nombre_clean}', pidiendo apellido")
-                    return JSONResponse(
-                        content={
-                            "encontrado": False,
-                            "necesita_mas_info": True,
-                            "tipo_info_faltante": "apellido",
-                            "nombre_parcial": nombre_clean,
-                            "mensaje": f"Solo tengo el nombre '{nombre_clean}'. Necesito el apellido para buscarlo.",
-                            "result": f"¿Me puede dar el apellido de {nombre_clean}? Necesito el nombre completo para poder ubicarlo.",
-                        },
-                        headers=ULTRAVOX_HEADERS
-                    )
-
             # Obtener todos los residentes para búsqueda inteligente
             all_residents = supabase.table("residents").select(
                 "id, full_name, apartment, phone"
@@ -878,8 +860,14 @@ async def buscar_residente(
                         headers=ULTRAVOX_HEADERS
                     )
                 else:
-                    # Múltiples matches exactos
+                    # Múltiples matches exactos - listar las opciones
                     logger.info(f"⚠️ Múltiples matches exactos ({len(exact_matches)})")
+                    # Construir lista de opciones para el visitante
+                    opciones = []
+                    for r in exact_matches[:5]:
+                        opciones.append(f"{r.get('full_name')} en {r.get('apartment')}")
+                    lista_opciones = ", ".join(opciones)
+
                     return JSONResponse(
                         content={
                             "encontrado": True,
@@ -890,7 +878,7 @@ async def buscar_residente(
                                 for r in exact_matches[:5]
                             ],
                             "mensaje": f"Hay {len(exact_matches)} residentes con ese nombre.",
-                            "result": f"Encontré {len(exact_matches)} personas con ese nombre. ¿Sabe el número de casa para identificar a la persona correcta?",
+                            "result": f"Encontré {len(exact_matches)} personas: {lista_opciones}. ¿A cuál de ellos visita?",
                         },
                         headers=ULTRAVOX_HEADERS
                     )
@@ -932,11 +920,7 @@ async def buscar_residente(
                         headers=ULTRAVOX_HEADERS
                     )
                 elif fuzzy_results:
-                    # Match moderado, pedir confirmación
-                    sugerencias = [
-                        {"nombre": name, "score": f"{score:.0%}"}
-                        for name, score in fuzzy_results[:3]
-                    ]
+                    # Match moderado, mostrar opciones
                     residentes_sugeridos = []
                     for name, score in fuzzy_results[:3]:
                         r = next((r for r in all_residents.data if r.get("full_name") == name), None)
@@ -946,16 +930,20 @@ async def buscar_residente(
                                 "apartamento": r.get("apartment")
                             })
 
-                    logger.info(f"🤔 Fuzzy match moderado, pidiendo confirmación")
-                    nombres_sugeridos = ", ".join([s["nombre"] for s in residentes_sugeridos[:2]])
+                    logger.info(f"🤔 Fuzzy match moderado, mostrando opciones")
+                    # Listar con apartamento para que el visitante elija
+                    opciones_texto = ", ".join([
+                        f"{s['nombre']} en {s['apartamento']}"
+                        for s in residentes_sugeridos[:3]
+                    ])
                     return JSONResponse(
                         content={
                             "encontrado": False,
                             "sugerencias": True,
                             "cantidad": len(residentes_sugeridos),
                             "residentes_sugeridos": residentes_sugeridos,
-                            "mensaje": f"No encontré exactamente '{nombre_buscar}'. ¿Quiso decir {nombres_sugeridos}?",
-                            "result": f"No encontré exactamente ese nombre. ¿Se refiere a {nombres_sugeridos}?",
+                            "mensaje": f"No encontré exactamente '{nombre_buscar}'. Opciones: {opciones_texto}",
+                            "result": f"No encontré exactamente ese nombre. Tengo registrados: {opciones_texto}. ¿Es alguno de ellos?",
                         },
                         headers=ULTRAVOX_HEADERS
                     )
