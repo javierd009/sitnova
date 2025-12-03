@@ -67,18 +67,29 @@ def _supabase_get_by_apartment(apartment: str) -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        apt_normalized = apartment.lower().replace(" ", "")
-        result = client.table("pending_authorizations").select("*").ilike("apartment", f"%{apt_normalized}%").order("created_at", desc=True).execute()
+        # Extraer solo numeros para busqueda mas precisa
+        apt_numbers = ''.join(filter(str.isdigit, apartment))
+
+        # Buscar con patron flexible (sin quitar espacios del patron)
+        apt_search = apartment.lower().strip()
+        result = client.table("pending_authorizations").select("*").ilike("apartment", f"%{apt_search}%").order("created_at", desc=True).execute()
+
+        # Si no hay resultados, intentar buscar solo por numero
+        if (not result.data or len(result.data) == 0) and apt_numbers:
+            logger.info(f"No match con '{apt_search}', intentando con numero: {apt_numbers}")
+            result = client.table("pending_authorizations").select("*").ilike("apartment", f"%{apt_numbers}%").order("created_at", desc=True).execute()
 
         if result.data and len(result.data) > 0:
             # Filter to find exact apartment number match
-            apt_numbers = ''.join(filter(str.isdigit, apt_normalized))
             for auth in result.data:
-                apt_db = auth.get("apartment", "").lower().replace(" ", "")
+                apt_db = auth.get("apartment", "")
                 apt_db_numbers = ''.join(filter(str.isdigit, apt_db))
+                # Match si los numeros son exactamente iguales
                 if apt_numbers and apt_db_numbers == apt_numbers:
+                    logger.info(f"Match exacto por numero: {apt_db} (numeros: {apt_numbers})")
                     return auth
             # If no exact match, return most recent
+            logger.info(f"Sin match exacto, usando mas reciente: {result.data[0].get('apartment')}")
             return result.data[0]
         return None
     except Exception as e:
