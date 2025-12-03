@@ -23,6 +23,99 @@ from src.api.routes.auth_state import (
 import re
 
 
+def extraer_telefono_de_webhook(key_data: dict) -> tuple[str, str]:
+    """
+    Extrae el número de teléfono de los datos del webhook de Evolution API.
+
+    Maneja múltiples formatos:
+    1. Normal: remoteJid = "50683208070@s.whatsapp.net"
+    2. Legacy: remoteJid = "50683208070@c.us"
+    3. LID (Android): remoteJid = "34935331135698@lid", remoteJidAlt = "50683208070@s.whatsapp.net"
+    4. Grupos: remoteJid = "50688015665-1571969073@g.us" (con participant)
+
+    Returns:
+        tuple: (phone, tipo) donde tipo es "normal", "lid", "grupo", "error"
+    """
+    remote_jid = key_data.get("remoteJid", "")
+    remote_jid_alt = key_data.get("remoteJidAlt", "")
+    participant = key_data.get("participant", "")
+    participant_alt = key_data.get("participantAlt", "")
+    addressing_mode = key_data.get("addressingMode", "")
+
+    logger.info(f"📱 Extrayendo teléfono:")
+    logger.info(f"   remoteJid: {remote_jid}")
+    logger.info(f"   remoteJidAlt: {remote_jid_alt}")
+    logger.info(f"   participant: {participant}")
+    logger.info(f"   addressingMode: {addressing_mode}")
+
+    phone = None
+    tipo = "error"
+
+    # CASO 1: Mensaje de grupo (@g.us)
+    if "@g.us" in remote_jid:
+        tipo = "grupo"
+        # En grupos, el número del remitente está en participant o participantAlt
+        if participant_alt and ("@s.whatsapp.net" in participant_alt or "@c.us" in participant_alt):
+            phone = participant_alt.replace("@s.whatsapp.net", "").replace("@c.us", "")
+        elif participant and ("@s.whatsapp.net" in participant or "@c.us" in participant):
+            phone = participant.replace("@s.whatsapp.net", "").replace("@c.us", "")
+        logger.info(f"   → Grupo detectado, participante: {phone}")
+        return phone, tipo
+
+    # CASO 2: LID (Linked ID de WhatsApp interno)
+    # Se identifica por @lid en remoteJid O por addressingMode="lid"
+    if "@lid" in remote_jid or addressing_mode == "lid":
+        tipo = "lid"
+        # El número real está en remoteJidAlt
+        if remote_jid_alt:
+            phone = remote_jid_alt.replace("@s.whatsapp.net", "").replace("@c.us", "").replace("@lid", "")
+            # Verificar que es un número válido (solo dígitos)
+            if phone and phone.isdigit():
+                logger.info(f"   → LID detectado, número de remoteJidAlt: {phone}")
+                return phone, tipo
+
+        # Fallback: si remoteJidAlt no tiene el número, buscar en otros campos
+        if participant_alt and ("@s.whatsapp.net" in participant_alt or "@c.us" in participant_alt):
+            phone = participant_alt.replace("@s.whatsapp.net", "").replace("@c.us", "")
+            if phone and phone.isdigit():
+                logger.info(f"   → LID detectado, número de participantAlt: {phone}")
+                return phone, tipo
+
+        logger.warning(f"   → LID sin número válido encontrado")
+        return None, "error"
+
+    # CASO 3: Chat individual normal (@s.whatsapp.net o @c.us)
+    if "@s.whatsapp.net" in remote_jid or "@c.us" in remote_jid:
+        tipo = "normal"
+        phone = remote_jid.replace("@s.whatsapp.net", "").replace("@c.us", "")
+        logger.info(f"   → Chat normal, número: {phone}")
+        return phone, tipo
+
+    # CASO 4: Formato desconocido - intentar extraer de todos los campos
+    logger.warning(f"   → Formato desconocido, intentando extraer de cualquier campo")
+
+    # Intentar remoteJidAlt
+    if remote_jid_alt:
+        phone = remote_jid_alt.replace("@s.whatsapp.net", "").replace("@c.us", "").replace("@lid", "")
+        if phone and phone.isdigit() and len(phone) >= 8:
+            tipo = "fallback"
+            logger.info(f"   → Fallback: número de remoteJidAlt: {phone}")
+            return phone, tipo
+
+    # Intentar remoteJid sin sufijo conocido
+    if remote_jid:
+        # Extraer solo los dígitos
+        phone_digits = ''.join(filter(str.isdigit, remote_jid.split('@')[0]))
+        if phone_digits and len(phone_digits) >= 8:
+            phone = phone_digits
+            tipo = "fallback"
+            logger.info(f"   → Fallback: dígitos extraídos: {phone}")
+            return phone, tipo
+
+    logger.error(f"   → No se pudo extraer número de teléfono")
+    return None, "error"
+
+
 def detectar_tipo_respuesta(texto: str) -> tuple[str, str]:
     """
     Detecta el tipo de respuesta del residente.
@@ -243,36 +336,20 @@ async def evolution_webhook(request: Request):
             logger.info("⏭️ Ignorando mensaje propio (fromMe=true)")
             return {"status": "ignored", "reason": "own_message"}
 
-        # Extraer número de teléfono
-        # Hay varios formatos posibles:
-        # 1. Chat individual normal: remoteJid = "50683208070@s.whatsapp.net"
-        # 2. Chat con LID (Android): remoteJid = "34935331135698@lid", remoteJidAlt = "50683208070@s.whatsapp.net"
-        # 3. Grupos: remoteJid = "50688015665-1571969073@g.us"
-        phone = None
-        remote_jid_alt = key_data.get("remoteJidAlt", "")
+        # Extraer número de teléfono usando la función robusta
+        phone, phone_tipo = extraer_telefono_de_webhook(key_data)
 
-        if "@g.us" in remote_jid:
-            # Es un mensaje de grupo - ignorar (no procesamos autorizaciones en grupos)
-            logger.info(f"⏭️ Ignorando mensaje de grupo: {remote_jid}")
+        # Ignorar mensajes de grupos
+        if phone_tipo == "grupo":
+            logger.info(f"⏭️ Ignorando mensaje de grupo")
             return {"status": "ignored", "reason": "group_message"}
 
-        elif "@lid" in remote_jid:
-            # Es un LID (Linked ID interno de WhatsApp) - el número real está en remoteJidAlt
-            logger.info(f"📱 Detectado LID: {remote_jid}, buscando en remoteJidAlt: {remote_jid_alt}")
-            if remote_jid_alt and "@s.whatsapp.net" in remote_jid_alt:
-                phone = remote_jid_alt.replace("@s.whatsapp.net", "").replace("@c.us", "")
-            else:
-                logger.warning(f"⚠️ LID sin remoteJidAlt válido")
-                return {"status": "error", "reason": "lid_without_phone"}
-        else:
-            # Chat individual normal - extraer número del remoteJid
-            phone = remote_jid.replace("@s.whatsapp.net", "").replace("@c.us", "")
-
-        if not phone:
-            logger.warning("⚠️ No se pudo extraer número de teléfono")
+        # Verificar que se extrajo un número válido
+        if not phone or phone_tipo == "error":
+            logger.warning(f"⚠️ No se pudo extraer número de teléfono")
             return {"status": "error", "reason": "no_phone_extracted"}
 
-        logger.info(f"📞 Número extraído: {phone}")
+        logger.info(f"📞 Número extraído: {phone} (tipo: {phone_tipo})")
 
         # Buscar autorización pendiente para este número
         key, auth = get_pending_authorization(phone)
