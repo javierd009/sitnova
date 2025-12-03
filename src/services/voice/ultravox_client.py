@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from loguru import logger
 
 from src.config.settings import settings
+from src.services.voice.prompts import get_full_system_prompt, RESPUESTAS
 
 
 # ============================================
@@ -111,7 +112,7 @@ class UltravoxClient:
             "initialMessages": [
                 {
                     "role": "MESSAGE_ROLE_AGENT",
-                    "text": "Buenas, bienvenido al condominio. Soy el asistente de seguridad. ¿A quién viene a visitar?"
+                    "text": RESPUESTAS["saludo"]
                 }
             ],
         }
@@ -179,7 +180,7 @@ class UltravoxClient:
             "initialMessages": [
                 {
                     "role": "MESSAGE_ROLE_AGENT",
-                    "text": "Buenas, bienvenido al condominio. Soy el asistente de seguridad. ¿A quién viene a visitar?"
+                    "text": RESPUESTAS["saludo"]
                 }
             ],
         }
@@ -259,47 +260,21 @@ class UltravoxClient:
     ) -> str:
         """
         Construye el prompt del sistema para el agente de voz.
+        Usa el prompt centralizado de src/services/voice/prompts.py
         """
-        context_info = ""
-        if visitor_context:
-            if visitor_context.get("plate"):
-                context_info += f"\n- Placa del vehiculo: {visitor_context['plate']}"
-            if visitor_context.get("vehicle_type"):
-                context_info += f"\n- Tipo: {visitor_context['vehicle_type']}"
+        # Extraer datos del contexto del visitante
+        plate = visitor_context.get("plate") if visitor_context else None
+        name = visitor_context.get("name") if visitor_context else None
+        vehicle_type = visitor_context.get("vehicle_type") if visitor_context else None
 
-        if resident_name:
-            context_info += f"\n- Residente destino: {resident_name}"
-        if apartment:
-            context_info += f"\n- Casa/Apartamento: {apartment}"
-
-        # Si no hay contexto, usar valor por defecto
-        if not context_info:
-            context_info = "\n- Sin informacion previa"
-
-        return f"""Eres el asistente de seguridad virtual de un condominio residencial en Costa Rica.
-
-Tu rol es recibir a los visitantes de manera profesional y amable, verificar su identidad y destino, y gestionar su acceso.
-
-INFORMACION DEL VISITANTE ACTUAL:{context_info}
-
-INSTRUCCIONES:
-1. Saluda cordialmente y pregunta a quien viene a visitar
-2. Solicita el nombre del visitante
-3. Si es necesario, pide la cedula para verificacion
-4. Una vez tengas la informacion, usa la herramienta correspondiente para verificar o notificar al residente
-5. Se claro con las instrucciones ("espere un momento mientras contacto al residente")
-6. Informa el resultado (acceso autorizado/denegado)
-
-TONO:
-- Profesional pero amigable
-- Usa el voseo costarricense cuando sea apropiado
-- Se conciso, no des explicaciones largas
-- Mantene la conversacion fluida y natural
-
-IMPORTANTE:
-- Si el visitante no colabora o actua sospechoso, deniega el acceso
-- Si hay una emergencia mencionada, prioriza la seguridad
-- Nunca reveles informacion personal de los residentes"""
+        # Usar el prompt centralizado
+        return get_full_system_prompt(
+            plate=plate,
+            name=name,
+            vehicle_type=vehicle_type,
+            resident_name=resident_name,
+            apartment=apartment,
+        )
 
     def _build_agent_tools(self) -> list[dict]:
         """

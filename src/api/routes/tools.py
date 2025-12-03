@@ -426,6 +426,7 @@ async def notificar_residente(
     nombre_visitante: Optional[str] = Query(None),
     cedula: Optional[str] = Query(None),
     placa: Optional[str] = Query(None),
+    motivo_visita: Optional[str] = Query(None),
 ):
     """
     Envia notificacion al residente para autorizar visita.
@@ -435,9 +436,10 @@ async def notificar_residente(
     - WhatsApp (Evolution API)
     - Llamada telefónica (próximamente)
 
-    Parámetros opcionales de OCR:
-    - cedula: Número de cédula del visitante (capturado por OCR)
-    - placa: Placa del vehículo (capturada por OCR)
+    Parámetros del visitante:
+    - cedula: Número de cédula del visitante
+    - placa: Placa del vehículo
+    - motivo_visita: Motivo de la visita (ej: "visita personal", "entrega")
     """
     body = await log_request(request, "/notificar-residente")
 
@@ -445,12 +447,15 @@ async def notificar_residente(
     visitante = body.get("nombre_visitante") or nombre_visitante
     visitor_cedula = body.get("cedula") or cedula
     visitor_placa = body.get("placa") or placa
+    visitor_motivo = body.get("motivo_visita") or motivo_visita
 
     logger.info(f"Notificando residente: apt={apt}, visitante={visitante}")
     if visitor_cedula:
         logger.info(f"   📄 Cédula: {visitor_cedula}")
     if visitor_placa:
         logger.info(f"   🚗 Placa: {visitor_placa}")
+    if visitor_motivo:
+        logger.info(f"   📝 Motivo: {visitor_motivo}")
 
     # Buscar residente en Supabase
     try:
@@ -554,18 +559,26 @@ async def notificar_residente(
                     use_mock=(not settings.evolution_api_key)
                 )
 
-                # Mensaje de notificación con datos OCR opcionales
+                # Mensaje de notificación completo con todos los datos del visitante
                 mensaje_wa = (
                     f"🚪 *Visita en portería*\n\n"
                     f"Hay una persona esperando en la entrada:\n"
                     f"👤 *Nombre:* {visitante}\n"
-                    f"🏠 *Destino:* {apt}\n"
                 )
-                # Agregar datos OCR si están disponibles
+                # Agregar cédula (importante para seguridad)
                 if visitor_cedula:
                     mensaje_wa += f"🪪 *Cédula:* {visitor_cedula}\n"
+                else:
+                    mensaje_wa += f"🪪 *Cédula:* No proporcionada\n"
+                # Agregar motivo de visita
+                if visitor_motivo:
+                    mensaje_wa += f"📝 *Motivo:* {visitor_motivo}\n"
+                # Agregar placa si viene en vehículo
                 if visitor_placa:
                     mensaje_wa += f"🚗 *Placa:* {visitor_placa}\n"
+                # Destino
+                mensaje_wa += f"🏠 *Destino:* {apt}\n"
+                # Instrucciones de respuesta
                 mensaje_wa += (
                     f"\nResponda *SI* para autorizar o *NO* para denegar.\n"
                     f"También puede enviar un mensaje para el visitante."
@@ -792,6 +805,24 @@ async def buscar_residente(
             # Si no se pudo extraer nada, intentar con el texto original
             if not nombre_clean and not apellido_clean:
                 nombre_clean = nombre_buscar.split()[0] if nombre_buscar else None
+
+            # NUEVO: Si solo hay nombre sin apellido, pedir el apellido
+            if nombre_clean and not apellido_clean:
+                # Verificar si el nombre solo tiene una palabra
+                palabras = nombre_buscar.strip().split()
+                if len(palabras) == 1:
+                    logger.info(f"⚠️ Solo se dio nombre '{nombre_clean}', pidiendo apellido")
+                    return JSONResponse(
+                        content={
+                            "encontrado": False,
+                            "necesita_mas_info": True,
+                            "tipo_info_faltante": "apellido",
+                            "nombre_parcial": nombre_clean,
+                            "mensaje": f"Solo tengo el nombre '{nombre_clean}'. Necesito el apellido para buscarlo.",
+                            "result": f"¿Me puede dar el apellido de {nombre_clean}? Necesito el nombre completo para poder ubicarlo.",
+                        },
+                        headers=ULTRAVOX_HEADERS
+                    )
 
             # Obtener todos los residentes para búsqueda inteligente
             all_residents = supabase.table("residents").select(
@@ -1022,13 +1053,35 @@ async def estado_autorizacion(
 
             if status == "autorizado":
                 logger.success(f"✅ Estado: AUTORIZADO para {apt}")
+
+                # Buscar instrucciones de dirección del residente
+                direccion_instrucciones = None
+                try:
+                    supabase = get_supabase()
+                    if supabase:
+                        resident_info = supabase.table("residents").select(
+                            "address_instructions"
+                        ).ilike("apartment", f"%{apt}%").limit(1).execute()
+
+                        if resident_info.data and len(resident_info.data) > 0:
+                            direccion_instrucciones = resident_info.data[0].get("address_instructions")
+                except Exception as e:
+                    logger.warning(f"Error obteniendo direcciones: {e}")
+
+                # Construir mensaje de resultado con direcciones si están disponibles
+                result_message = f"Excelente noticias. El residente de {apt} ha autorizado el ingreso de {visitor}."
+                if direccion_instrucciones:
+                    result_message += f" Para llegar: {direccion_instrucciones}."
+                result_message += " Puede abrir el portón. Bienvenido al condominio."
+
                 return JSONResponse(
                     content={
                         "apartamento": apt,
                         "estado": "autorizado",
                         "mensaje": f"El residente ha AUTORIZADO el acceso del visitante {visitor}. Puede abrir el portón.",
                         "visitor_name": visitor,
-                        "result": f"Excelente noticias. El residente de {apt} ha autorizado el ingreso de {visitor}. Puede abrir el portón.",
+                        "direccion_instrucciones": direccion_instrucciones,
+                        "result": result_message,
                     },
                     headers=ULTRAVOX_HEADERS
                 )
@@ -1060,14 +1113,50 @@ async def estado_autorizacion(
                     headers=ULTRAVOX_HEADERS
                 )
             else:
-                logger.info(f"⏳ Estado: PENDIENTE para {apt}")
+                # Calcular tiempo de espera para dar mensaje contextual
+                timestamp_str = auth.get("timestamp", "")
+                wait_seconds = 0
+                wait_message = "Estoy contactando al residente, un momento por favor."
+
+                if timestamp_str:
+                    try:
+                        # Parsear timestamp (puede ser con o sin timezone)
+                        if "+" in timestamp_str or "Z" in timestamp_str:
+                            # Tiene timezone
+                            from datetime import timezone
+                            auth_time = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                            now = datetime.now(timezone.utc)
+                        else:
+                            auth_time = datetime.fromisoformat(timestamp_str)
+                            now = datetime.now()
+                        wait_seconds = (now - auth_time).total_seconds()
+                    except Exception as e:
+                        logger.warning(f"Error parseando timestamp: {e}")
+                        wait_seconds = 0
+
+                # Mensajes contextuales según tiempo de espera
+                if wait_seconds < 15:
+                    wait_message = "Estoy contactando al residente, un momento por favor."
+                elif wait_seconds < 30:
+                    wait_message = "El residente está revisando la solicitud."
+                elif wait_seconds < 60:
+                    wait_message = "Seguimos esperando la respuesta del residente. Gracias por su paciencia."
+                elif wait_seconds < 120:
+                    wait_message = "El residente aún no responde. ¿Desea seguir esperando o prefiere dejar un mensaje?"
+                else:
+                    # Más de 2 minutos - ofrecer alternativas
+                    wait_message = "No hemos podido contactar al residente. Puede intentar comunicarse directamente o volver más tarde."
+
+                logger.info(f"⏳ Estado: PENDIENTE para {apt} (espera: {wait_seconds:.0f}s)")
+
                 return JSONResponse(
                     content={
                         "apartamento": apt,
                         "estado": "pendiente",
                         "mensaje": f"Esperando respuesta del residente de {apt}.",
                         "visitor_name": visitor,
-                        "result": f"Todavía estoy esperando la respuesta del residente de {apt}. Por favor aguarde un momento más.",
+                        "tiempo_espera_segundos": int(wait_seconds),
+                        "result": wait_message,
                     },
                     headers=ULTRAVOX_HEADERS
                 )
@@ -1137,3 +1226,99 @@ async def ver_autorizaciones():
         "autorizaciones": auths,
         "mensaje": "Use /webhooks/evolution/autorizaciones para la misma info"
     }
+
+
+# ============================================
+# HUMAN IN THE LOOP - Transferir a Operador
+# ============================================
+@router.post("/transferir-operador")
+async def transferir_operador(
+    request: Request,
+    motivo: Optional[str] = Query(None, description="Motivo de la transferencia"),
+    nombre_visitante: Optional[str] = Query(None, description="Nombre del visitante"),
+    apartamento: Optional[str] = Query(None, description="Apartamento destino"),
+):
+    """
+    Transfiere la situacion a un operador humano.
+
+    Casos de uso:
+    - El visitante no proporciona informacion necesaria
+    - El residente no contesta despues de timeout
+    - Situacion especial que requiere intervencion humana
+    - El visitante lo solicita explicitamente
+
+    Notifica al operador por WhatsApp con el contexto de la situacion.
+    """
+    body = await log_request(request, "/transferir-operador")
+
+    reason = body.get("motivo") or motivo or "Asistencia requerida"
+    visitor = body.get("nombre_visitante") or nombre_visitante or "No identificado"
+    apt = body.get("apartamento") or apartamento or "No especificado"
+
+    logger.info(f"🚨 TRANSFERENCIA A OPERADOR: motivo={reason}, visitante={visitor}, apt={apt}")
+
+    # Verificar si hay operador configurado
+    if not settings.operator_phone:
+        logger.warning("⚠️ No hay operador configurado (OPERATOR_PHONE)")
+        return JSONResponse(
+            content={
+                "transferido": False,
+                "mensaje": "No hay operador disponible en este momento.",
+                "result": "Lo siento, en este momento no hay un operador disponible. Por favor intente comunicarse directamente con el residente o vuelva más tarde.",
+            },
+            headers=ULTRAVOX_HEADERS
+        )
+
+    try:
+        # Crear cliente Evolution para notificar al operador
+        evolution = create_evolution_client(
+            base_url=settings.evolution_api_url,
+            api_key=settings.evolution_api_key,
+            instance_name=settings.evolution_instance_name,
+            use_mock=(not settings.evolution_api_key)
+        )
+
+        # Mensaje para el operador
+        mensaje_operador = (
+            f"🚨 *Asistencia en porteria*\n\n"
+            f"El sistema requiere atencion humana:\n\n"
+            f"👤 *Visitante:* {visitor}\n"
+            f"🏠 *Destino:* {apt}\n"
+            f"📝 *Motivo:* {reason}\n\n"
+            f"Por favor atienda la porteria o contacte al visitante."
+        )
+
+        result_wa = evolution.send_text(settings.operator_phone, mensaje_operador)
+
+        if result_wa.get("success"):
+            logger.success(f"✅ Operador notificado: {settings.operator_phone}")
+            return JSONResponse(
+                content={
+                    "transferido": True,
+                    "mensaje": "Se ha notificado al operador.",
+                    "operador_notificado": True,
+                    "result": "He notificado a un operador humano. En unos momentos le atendera una persona. Por favor espere.",
+                },
+                headers=ULTRAVOX_HEADERS
+            )
+        else:
+            logger.error(f"❌ Error notificando operador: {result_wa.get('error')}")
+            return JSONResponse(
+                content={
+                    "transferido": False,
+                    "mensaje": "No se pudo contactar al operador.",
+                    "result": "No fue posible contactar al operador en este momento. Por favor intente comunicarse directamente con el residente.",
+                },
+                headers=ULTRAVOX_HEADERS
+            )
+
+    except Exception as e:
+        logger.error(f"❌ Error en transferencia: {e}")
+        return JSONResponse(
+            content={
+                "transferido": False,
+                "mensaje": f"Error: {str(e)}",
+                "result": "Hubo un problema tecnico. Por favor intente mas tarde.",
+            },
+            headers=ULTRAVOX_HEADERS
+        )

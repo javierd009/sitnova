@@ -12,13 +12,23 @@ Sistema autónomo que reemplaza al portero humano, combinando visión artificial
 |------------|--------|
 | **Agente LangGraph** | ✅ **FUNCIONAL** |
 | **Docker Setup** | ✅ Production-ready |
-| **Tools (8 tools)** | ✅ Implementados (con mocks) |
+| **Tools (11 tools)** | ✅ Implementados (con mocks) |
 | **API Gateway** | ✅ FastAPI completo |
 | **Tests E2E** | ✅ 2/2 passing |
 | **Documentación** | ✅ Completa |
 | **Database Schema** | ✅ Listo para deploy |
+| **Voice AI Prompts** | ✅ Sistema profesional centralizado |
+| **Human in Loop** | ✅ Transferencia a operador |
 
 **🚀 Quick Start**: El agente está funcional y puede ejecutarse localmente con mocks.
+
+**🆕 Últimas Mejoras** (2025-12-03):
+- System prompt profesional centralizado
+- Mensajes WhatsApp enriquecidos (nombre, cédula, motivo)
+- Mensajes de espera contextuales según tiempo transcurrido
+- Búsqueda mejorada de residentes (pide apellido si falta)
+- Soporte para direcciones e instrucciones de llegada
+- Sistema de transferencia a operador humano
 
 ---
 
@@ -80,7 +90,7 @@ curl http://localhost:8000/health
 │                                                         │
 │  State: PorteroState (TypedDict)                        │
 │                                                         │
-│  Tools (8):                                             │
+│  Tools (11):                                             │
 │  - check_authorized_vehicle → Supabase                  │
 │  - check_pre_authorized_visitor → Supabase              │
 │  - capture_plate_ocr → Servicio OCR                     │
@@ -89,6 +99,9 @@ curl http://localhost:8000/health
 │  - notify_resident_whatsapp → Evolution API             │
 │  - call_resident → FreePBX AMI                          │
 │  - log_access_event → Supabase                          │
+│  - search_resident → Búsqueda inteligente               │
+│  - check_authorization_status → Polling contextual      │
+│  - transfer_to_operator → Human in the loop             │
 │                                                         │
 │  Graph Flow:                                            │
 │  greeting → check_vehicle → [authorized?]               │
@@ -158,10 +171,13 @@ curl http://localhost:8000/health
 ### ✅ Validación de Visitantes
 1. Placa desconocida → Activa intercomunicador
 2. Conversación por voz: "¿A quién visita?"
-3. Captura cédula con OCR
-4. Verifica pre-autorización o contacta residente
-5. WhatsApp al residente con foto del visitante
-6. Residente autoriza/deniega → Abre o niega acceso
+3. Recopila datos: nombre completo, cédula, motivo de visita
+4. Captura cédula con OCR (validación adicional)
+5. Verifica pre-autorización o contacta residente
+6. WhatsApp al residente con datos completos del visitante
+7. Residente autoriza/deniega → Abre o niega acceso
+8. Si autorizado: proporciona instrucciones de llegada
+9. Si no hay respuesta: ofrece transferir a operador
 
 ### ✅ Multi-tenant
 - Un sistema para múltiples condominios
@@ -189,7 +205,10 @@ sitnova/
 │   │   └── graph.py             # StateGraph assembly
 │   ├── services/
 │   │   ├── vision/              # OCR service
-│   │   ├── voice/               # Ultravox handler
+│   │   ├── voice/               # Ultravox/AsterSIPVox handler
+│   │   │   ├── prompts.py       # System prompts centralizados
+│   │   │   ├── ultravox_client.py
+│   │   │   └── astersipvox_client.py
 │   │   ├── access/              # Hikvision client
 │   │   └── pbx/                 # FreePBX integration
 │   ├── database/
@@ -283,6 +302,8 @@ nano .env  # Editar con tus credenciales
 - `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` - Database
 - `HIKVISION_HOST` + `HIKVISION_PASSWORD` - Control de puertas
 - `CAMERA_ENTRADA_URL` + `CAMERA_CEDULA_URL` - Cámaras RTSP
+- `OPERATOR_PHONE` - Teléfono del operador para transferencias
+- `OPERATOR_TIMEOUT` - Tiempo de espera antes de ofrecer transferir (default: 120s)
 
 ### 2. Supabase
 

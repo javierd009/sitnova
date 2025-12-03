@@ -151,6 +151,12 @@ class Settings(BaseSettings):
     onesignal_rest_api_key: str = ""
 
     # ============================================
+    # OPERADOR HUMANO (Human in the Loop)
+    # ============================================
+    operator_phone: str = ""  # Telefono del operador de respaldo (WhatsApp)
+    operator_timeout: int = 120  # Segundos antes de ofrecer transferir a operador
+
+    # ============================================
     # PROPIEDADES COMPUTADAS
     # ============================================
     @property

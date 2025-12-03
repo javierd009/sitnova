@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from loguru import logger
 
 from src.config.settings import settings
+from src.services.voice.prompts import get_full_system_prompt
 
 
 # ============================================
@@ -221,38 +222,25 @@ class AsterSIPVoxClient:
 
         Este prompt se inyecta en la conversacion del asistente
         para darle contexto sobre el visitante actual.
+        Usa el prompt centralizado de src/services/voice/prompts.py
         """
-        # Prompt base del portero
-        base_prompt = """Eres el asistente de seguridad virtual de un condominio residencial.
-Tu rol es verificar la identidad del visitante y gestionar su acceso.
+        # Extraer datos del contexto del visitante
+        plate = visitor_context.get("plate") if visitor_context else None
+        name = visitor_context.get("name") if visitor_context else None
+        vehicle_type = visitor_context.get("vehicle_type") if visitor_context else None
+        resident_name = visitor_context.get("resident_name") if visitor_context else None
+        apartment = visitor_context.get("apartment") if visitor_context else None
 
-INSTRUCCIONES:
-1. Saluda cordialmente
-2. Pregunta a quien viene a visitar (nombre del residente y numero de casa/apartamento)
-3. Solicita el nombre del visitante
-4. Verifica si tiene pre-autorizacion o contacta al residente
-5. Informa el resultado (acceso autorizado o denegado)
+        # Usar el prompt centralizado
+        base_prompt = get_full_system_prompt(
+            plate=plate,
+            name=name,
+            vehicle_type=vehicle_type,
+            resident_name=resident_name,
+            apartment=apartment,
+        )
 
-TONO: Profesional pero amigable. Se conciso."""
-
-        # Agregar contexto del visitante si existe
-        if visitor_context:
-            context_lines = ["\n\nCONTEXTO DEL VISITANTE ACTUAL:"]
-
-            if visitor_context.get("plate"):
-                context_lines.append(f"- Placa del vehiculo: {visitor_context['plate']}")
-            if visitor_context.get("name"):
-                context_lines.append(f"- Nombre (si lo dio): {visitor_context['name']}")
-            if visitor_context.get("vehicle_type"):
-                context_lines.append(f"- Tipo de vehiculo: {visitor_context['vehicle_type']}")
-            if visitor_context.get("resident_name"):
-                context_lines.append(f"- Dice que visita a: {visitor_context['resident_name']}")
-            if visitor_context.get("apartment"):
-                context_lines.append(f"- Casa/Apartamento: {visitor_context['apartment']}")
-
-            base_prompt += "\n".join(context_lines)
-
-        # Agregar prompt personalizado si existe
+        # Agregar prompt personalizado si existe (para casos especiales)
         if custom_prompt:
             base_prompt += f"\n\nINSTRUCCIONES ADICIONALES:\n{custom_prompt}"
 

@@ -13,7 +13,10 @@ sitnova/
 │   │   └── graph.py             # StateGraph definition
 │   ├── services/                # Servicios externos
 │   │   ├── vision/              # OCR (YOLO + EasyOCR)
-│   │   ├── voice/               # Ultravox handler
+│   │   ├── voice/               # Voice AI integration
+│   │   │   ├── prompts.py       # System prompts centralizados (NUEVO)
+│   │   │   ├── ultravox_client.py
+│   │   │   └── astersipvox_client.py
 │   │   ├── access/              # Hikvision ISAPI
 │   │   └── pbx/                 # FreePBX integration
 │   ├── database/                # Database layer
@@ -66,6 +69,8 @@ nano .env
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`: Para la base de datos
 - `HIKVISION_HOST`, `HIKVISION_PASSWORD`: Para control de puertas
 - `CAMERA_ENTRADA_URL`, `CAMERA_CEDULA_URL`: RTSP de las cámaras
+- `OPERATOR_PHONE`: Teléfono del operador para transferencias
+- `OPERATOR_TIMEOUT`: Tiempo de espera antes de ofrecer transferir (default: 120s)
 
 ### 3. Instalar Dependencias
 
@@ -337,16 +342,57 @@ Verificar:
 
 ## 📝 Próximos Pasos
 
-1. [ ] Implementar tools del agente
-2. [ ] Completar servicio OCR
-3. [ ] Integrar Ultravox webhooks
-4. [ ] Cliente de Hikvision ISAPI
-5. [ ] Tests end-to-end
-6. [ ] Dashboard admin (frontend)
-7. [ ] Documentación de API (OpenAPI spec)
-8. [ ] CI/CD pipeline
+1. [x] Implementar tools del agente
+2. [x] System prompt profesional centralizado
+3. [x] Mensajes WhatsApp enriquecidos
+4. [x] Mensajes de espera contextuales
+5. [x] Human in the loop (transferencia a operador)
+6. [ ] Completar servicio OCR
+7. [ ] Integrar Ultravox webhooks
+8. [ ] Cliente de Hikvision ISAPI
+9. [ ] Tests end-to-end completos
+10. [ ] Dashboard admin (frontend)
+11. [ ] Documentación de API (OpenAPI spec)
+12. [ ] CI/CD pipeline
 
 ---
 
-**Versión**: 1.0.0
-**Última actualización**: 2025-11-30
+## 🆕 Últimas Mejoras (2025-12-03)
+
+### System Prompt Profesional
+- **Archivo**: `src/services/voice/prompts.py`
+- Prompts centralizados para fácil mantenimiento
+- Define personalidad, flujo de conversación y reglas de seguridad
+- Utilizado por Ultravox y AsterSIPVox
+
+### Mensajes WhatsApp Enriquecidos
+- Incluye: nombre, cédula, motivo de visita, placa
+- Formato visual mejorado con emojis
+- Residente tiene toda la información para decidir
+
+### Mensajes de Espera Contextuales
+- Mensajes adaptativos según tiempo transcurrido:
+  - < 15s: "Contactando al residente..."
+  - 15-30s: "Revisando la solicitud..."
+  - 30-60s: "Esperando respuesta..."
+  - > 120s: "No hemos podido contactar..."
+
+### Búsqueda Mejorada de Residentes
+- Pide apellido si solo dan nombre
+- Pide número de casa si no encuentra por nombre
+- Respuestas guiadas para el agente
+
+### Direcciones e Instrucciones
+- Nuevos campos en tabla `residents`: `address`, `address_instructions`
+- Al autorizar acceso, se proporcionan instrucciones de llegada
+- Evita que visitantes se pierdan en el condominio
+
+### Human in the Loop
+- Endpoint `/tools/transferir-operador`
+- Transfiere a operador humano cuando el sistema no puede resolver
+- Notifica al operador por WhatsApp con contexto completo
+
+---
+
+**Versión**: 1.1.0
+**Última actualización**: 2025-12-03
