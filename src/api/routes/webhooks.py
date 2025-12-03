@@ -244,16 +244,28 @@ async def evolution_webhook(request: Request):
             return {"status": "ignored", "reason": "own_message"}
 
         # Extraer número de teléfono
-        # En chats individuales: remoteJid es el número (@s.whatsapp.net)
-        # En grupos: remoteJid es el grupo (@g.us), el número está en participant
+        # Hay varios formatos posibles:
+        # 1. Chat individual normal: remoteJid = "50683208070@s.whatsapp.net"
+        # 2. Chat con LID (Android): remoteJid = "34935331135698@lid", remoteJidAlt = "50683208070@s.whatsapp.net"
+        # 3. Grupos: remoteJid = "50688015665-1571969073@g.us"
         phone = None
+        remote_jid_alt = key_data.get("remoteJidAlt", "")
 
         if "@g.us" in remote_jid:
             # Es un mensaje de grupo - ignorar (no procesamos autorizaciones en grupos)
             logger.info(f"⏭️ Ignorando mensaje de grupo: {remote_jid}")
             return {"status": "ignored", "reason": "group_message"}
+
+        elif "@lid" in remote_jid:
+            # Es un LID (Linked ID interno de WhatsApp) - el número real está en remoteJidAlt
+            logger.info(f"📱 Detectado LID: {remote_jid}, buscando en remoteJidAlt: {remote_jid_alt}")
+            if remote_jid_alt and "@s.whatsapp.net" in remote_jid_alt:
+                phone = remote_jid_alt.replace("@s.whatsapp.net", "").replace("@c.us", "")
+            else:
+                logger.warning(f"⚠️ LID sin remoteJidAlt válido")
+                return {"status": "error", "reason": "lid_without_phone"}
         else:
-            # Chat individual - extraer número del remoteJid
+            # Chat individual normal - extraer número del remoteJid
             phone = remote_jid.replace("@s.whatsapp.net", "").replace("@c.us", "")
 
         if not phone:
