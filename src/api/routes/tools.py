@@ -14,11 +14,13 @@ Flujo:
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional, Any
+from typing import Optional, Any, List, Tuple
 from datetime import datetime
 from loguru import logger
 import json
 import unicodedata
+import difflib
+import re
 
 
 # Headers para Ultravox - indica que el agente debe hablar después del tool
@@ -39,6 +41,197 @@ def normalize_text(text: str) -> str:
     # Normalize unicode and remove accents
     normalized = unicodedata.normalize('NFD', text)
     return ''.join(c for c in normalized if unicodedata.category(c) != 'Mn')
+
+
+# ============================================
+# FUZZY MATCHING HELPERS
+# ============================================
+
+# Apellidos latinos comunes para sugerencias
+APELLIDOS_COMUNES = [
+    "rodriguez", "gonzalez", "hernandez", "garcia", "martinez",
+    "lopez", "perez", "sanchez", "ramirez", "torres", "flores",
+    "rivera", "gomez", "diaz", "reyes", "morales", "cruz",
+    "ortiz", "gutierrez", "chavez", "ramos", "vargas", "castillo",
+    "jimenez", "ruiz", "mendoza", "aguilar", "medina", "castro",
+    "guzman", "rojas", "fernandez", "herrera", "colorado", "mora",
+    "solis", "nunez", "campos", "vega", "delgado", "suarez",
+    "romero", "vasquez", "silva", "zamora", "contreras", "leon",
+    "salazar", "fuentes", "cordero", "araya", "quesada", "chaves"
+]
+
+# Mapeo de errores foneticos comunes en espanol (voz a texto)
+PHONETIC_CORRECTIONS = {
+    # Errores comunes de reconocimiento de voz
+    "radriga": "rodriguez",
+    "gonsales": "gonzalez",
+    "gonsalez": "gonzalez",
+    "ernandez": "hernandez",
+    "errera": "herrera",
+    "arcia": "garcia",
+    "artinez": "martinez",
+    "opes": "lopez",
+    "eres": "perez",
+    "anches": "sanchez",
+    "amires": "ramirez",
+    "olorado": "colorado",
+    "oloraro": "colorado",
+    # Variaciones de nombres
+    "deizy": "daisy",
+    "deisy": "daisy",
+    "daysi": "daisy",
+    "jhon": "john",
+    "jon": "john",
+    "maria": "maria",
+    "jose": "jose",
+}
+
+
+def get_phonetic_correction(word: str) -> str:
+    """Intenta corregir errores foneticos comunes."""
+    word_lower = normalize_text(word.lower().strip())
+    return PHONETIC_CORRECTIONS.get(word_lower, word)
+
+
+def fuzzy_match_name(query: str, candidates: List[str], threshold: float = 0.6) -> List[Tuple[str, float]]:
+    """
+    Busca coincidencias fuzzy entre un nombre y una lista de candidatos.
+
+    Returns:
+        Lista de (nombre, score) ordenada por score descendente
+    """
+    query_normalized = normalize_text(query.lower().strip())
+    results = []
+
+    for candidate in candidates:
+        candidate_normalized = normalize_text(candidate.lower().strip())
+
+        # Calcular similitud
+        ratio = difflib.SequenceMatcher(None, query_normalized, candidate_normalized).ratio()
+
+        # Bonus si el query esta contenido en el candidato o viceversa
+        if query_normalized in candidate_normalized or candidate_normalized in query_normalized:
+            ratio = min(ratio + 0.2, 1.0)
+
+        # Bonus si comparten el mismo inicio
+        if candidate_normalized.startswith(query_normalized[:3]) if len(query_normalized) >= 3 else False:
+            ratio = min(ratio + 0.1, 1.0)
+
+        if ratio >= threshold:
+            results.append((candidate, ratio))
+
+    # Ordenar por score descendente
+    results.sort(key=lambda x: x[1], reverse=True)
+    return results
+
+
+def suggest_similar_surnames(query: str, threshold: float = 0.5) -> List[str]:
+    """Sugiere apellidos similares al query basado en apellidos comunes."""
+    query_normalized = normalize_text(query.lower().strip())
+
+    # Primero verificar correccion fonetica
+    corrected = get_phonetic_correction(query_normalized)
+    if corrected != query_normalized:
+        return [corrected.title()]
+
+    # Buscar coincidencias fuzzy en apellidos comunes
+    matches = difflib.get_close_matches(query_normalized, APELLIDOS_COMUNES, n=3, cutoff=threshold)
+    return [m.title() for m in matches]
+
+
+def is_valid_name(name: str) -> bool:
+    """Verifica si un nombre parece valido (no es ruido de reconocimiento de voz)."""
+    if not name or len(name) < 2:
+        return False
+
+    name_normalized = normalize_text(name.lower().strip())
+
+    # Patrones que indican ruido (no son nombres reales)
+    noise_patterns = [
+        r'^de\s+\w+$',  # "de bicicletas", "de algo"
+        r'bicicleta',
+        r'carro',
+        r'auto',
+        r'vehiculo',
+        r'moto',
+    ]
+
+    for pattern in noise_patterns:
+        if re.search(pattern, name_normalized):
+            return False
+
+    return True
+
+
+def extract_name_parts(full_text: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Extrae nombre y apellido de un texto, filtrando ruido.
+
+    Ejemplo: "Daisy de bicicletas Colorado" -> ("Daisy", "Colorado")
+    """
+    if not full_text:
+        return None, None
+
+    # Palabras a ignorar (ruido comun)
+    noise_words = {'de', 'del', 'la', 'las', 'los', 'el', 'bicicletas', 'bicicleta',
+                   'carro', 'auto', 'vehiculo', 'moto', 'casa', 'apartamento'}
+
+    words = full_text.strip().split()
+    clean_words = [w for w in words if w.lower() not in noise_words and is_valid_name(w)]
+
+    if len(clean_words) == 0:
+        return None, None
+    elif len(clean_words) == 1:
+        return clean_words[0], None
+    else:
+        # Asumir que el primero es nombre y el ultimo es apellido
+        return clean_words[0], clean_words[-1]
+
+
+def normalize_apartment(apt: str) -> Tuple[str, Optional[str]]:
+    """
+    Normaliza el numero de apartamento/casa.
+
+    Returns:
+        (normalized_string, extracted_number)
+
+    Ejemplos:
+        "Casa 10" -> ("casa 10", "10")
+        "casa10" -> ("casa 10", "10")
+        "la 10" -> ("10", "10")
+        "diez" -> ("10", "10")
+    """
+    if not apt:
+        return "", None
+
+    apt_lower = apt.lower().strip()
+
+    # Mapeo de numeros en texto a digitos
+    text_to_number = {
+        'uno': '1', 'una': '1', 'primero': '1', 'primera': '1',
+        'dos': '2', 'segundo': '2', 'segunda': '2',
+        'tres': '3', 'tercero': '3', 'tercera': '3',
+        'cuatro': '4', 'cuarto': '4', 'cuarta': '4',
+        'cinco': '5', 'quinto': '5', 'quinta': '5',
+        'seis': '6', 'sexto': '6', 'sexta': '6',
+        'siete': '7', 'septimo': '7', 'septima': '7',
+        'ocho': '8', 'octavo': '8', 'octava': '8',
+        'nueve': '9', 'noveno': '9', 'novena': '9',
+        'diez': '10', 'decimo': '10', 'decima': '10',
+        'once': '11', 'doce': '12', 'trece': '13', 'catorce': '14',
+        'quince': '15', 'dieciseis': '16', 'diecisiete': '17',
+        'dieciocho': '18', 'diecinueve': '19', 'veinte': '20',
+    }
+
+    # Reemplazar numeros en texto por digitos
+    for text, num in text_to_number.items():
+        if text in apt_lower:
+            apt_lower = apt_lower.replace(text, num)
+
+    # Extraer solo el numero
+    numbers = ''.join(filter(str.isdigit, apt_lower))
+
+    return apt_lower, numbers if numbers else None
 
 router = APIRouter()
 
@@ -490,15 +683,16 @@ async def buscar_residente(
     nombre: Optional[str] = Query(None, description="Nombre del residente"),
 ):
     """
-    Busca residentes por apartamento O por nombre.
+    Busca residentes por apartamento O por nombre con lógica inteligente.
 
     IMPORTANTE: Usar este endpoint ANTES de notificar para verificar
     que existe el residente y obtener información correcta.
 
     Casos manejados:
-    - Búsqueda por apartamento: Retorna el residente de esa casa
-    - Búsqueda por nombre: Si hay múltiples, pide más información
-    - Sin resultados: Indica que no se encontró
+    - Búsqueda por apartamento: Soporta variaciones ("Casa 10", "casa10", "la diez")
+    - Búsqueda por nombre: Filtra ruido y usa fuzzy matching
+    - Sugerencias: Si no hay match, sugiere alternativas (ej: "Radriga" → "Rodríguez")
+    - Sin resultados: Indica que no se encontró y pide más información
     """
     body = await log_request(request, "/buscar-residente")
 
@@ -522,12 +716,35 @@ async def buscar_residente(
 
         # CASO 1: Búsqueda por apartamento (más específica)
         if apt:
-            apt_normalized = normalize_text(apt) if apt else ""
+            # Normalizar apartamento (maneja "Casa 10", "casa10", "la diez", etc.)
+            apt_normalized, apt_number = normalize_apartment(apt)
+            logger.info(f"🏠 Apartamento normalizado: '{apt_normalized}' (número: {apt_number})")
 
-            # Buscar por apartamento
-            result = supabase.table("residents").select(
-                "id, full_name, apartment, phone"
-            ).ilike("apartment", f"%{apt_normalized}%").eq("is_active", True).execute()
+            # Primero buscar por número exacto si existe
+            result = None
+            if apt_number:
+                # Buscar donde el número del apartamento coincida
+                all_residents = supabase.table("residents").select(
+                    "id, full_name, apartment, phone"
+                ).eq("is_active", True).execute()
+
+                # Filtrar por número de apartamento
+                matching = []
+                for r in all_residents.data or []:
+                    _, r_number = normalize_apartment(r.get("apartment", ""))
+                    if r_number == apt_number:
+                        matching.append(r)
+                        logger.info(f"   ✓ Match por número: {r.get('apartment')}")
+
+                if matching:
+                    result = type('obj', (object,), {'data': matching})()
+
+            # Si no hay match por número, buscar por texto
+            if not result or not result.data:
+                logger.info(f"🔍 Buscando por texto: '{apt_normalized}'")
+                result = supabase.table("residents").select(
+                    "id, full_name, apartment, phone"
+                ).ilike("apartment", f"%{apt_normalized}%").eq("is_active", True).execute()
 
             if not result.data or len(result.data) == 0:
                 logger.info(f"❌ No se encontró residente en {apt}")
@@ -541,17 +758,14 @@ async def buscar_residente(
                     headers=ULTRAVOX_HEADERS
                 )
 
-            # Seleccionar el mejor match por número
-            apt_numbers = ''.join(filter(str.isdigit, apt_normalized))
-            mejor_match = None
-            for r in result.data:
-                apt_db_numbers = ''.join(filter(str.isdigit, r.get("apartment", "")))
-                if apt_numbers and apt_db_numbers == apt_numbers:
-                    mejor_match = r
-                    break
-
-            if not mejor_match:
-                mejor_match = result.data[0]
+            # Si hay múltiples matches, seleccionar el mejor
+            mejor_match = result.data[0]
+            if len(result.data) > 1 and apt_number:
+                for r in result.data:
+                    _, r_number = normalize_apartment(r.get("apartment", ""))
+                    if r_number == apt_number:
+                        mejor_match = r
+                        break
 
             logger.info(f"✅ Encontrado: {mejor_match.get('full_name')} en {mejor_match.get('apartment')}")
             return JSONResponse(
@@ -571,62 +785,178 @@ async def buscar_residente(
 
         # CASO 2: Búsqueda por nombre (puede ser ambigua)
         elif nombre_buscar:
-            nombre_normalized = normalize_text(nombre_buscar)
-            primer_nombre = nombre_normalized.split()[0] if nombre_normalized else ""
+            # Extraer partes limpias del nombre (filtra ruido como "de bicicletas")
+            nombre_clean, apellido_clean = extract_name_parts(nombre_buscar)
+            logger.info(f"🔍 Nombre limpio: '{nombre_clean}', Apellido: '{apellido_clean}'")
 
-            logger.info(f"🔍 Buscando por nombre: '{nombre_normalized}' (primer nombre: '{primer_nombre}')")
+            # Si no se pudo extraer nada, intentar con el texto original
+            if not nombre_clean and not apellido_clean:
+                nombre_clean = nombre_buscar.split()[0] if nombre_buscar else None
 
-            # Buscar por nombre
-            result = supabase.table("residents").select(
+            # Obtener todos los residentes para búsqueda inteligente
+            all_residents = supabase.table("residents").select(
                 "id, full_name, apartment, phone"
-            ).ilike("full_name", f"%{primer_nombre}%").eq("is_active", True).execute()
+            ).eq("is_active", True).execute()
 
-            if not result.data or len(result.data) == 0:
-                logger.info(f"❌ No se encontró residente con nombre {nombre_buscar}")
+            if not all_residents.data:
+                logger.warning("No hay residentes en la base de datos")
                 return JSONResponse(
                     content={
                         "encontrado": False,
                         "cantidad": 0,
-                        "mensaje": f"No encontré ningún residente con el nombre {nombre_buscar}.",
-                        "result": f"No encontré ningún residente registrado con el nombre {nombre_buscar}. ¿Tiene el número de casa o apartamento?",
+                        "mensaje": "No hay residentes registrados.",
+                        "result": "No encontré ningún residente registrado en el sistema.",
                     },
                     headers=ULTRAVOX_HEADERS
                 )
 
-            # UN SOLO RESULTADO - perfecto
-            if len(result.data) == 1:
-                residente = result.data[0]
-                logger.info(f"✅ Un solo match: {residente.get('full_name')}")
-                return JSONResponse(
-                    content={
-                        "encontrado": True,
-                        "cantidad": 1,
-                        "residente": {
-                            "nombre": residente.get("full_name"),
-                            "apartamento": residente.get("apartment"),
-                            "tiene_telefono": bool(residente.get("phone")),
+            # Crear lista de nombres para fuzzy matching
+            nombres_db = [r.get("full_name", "") for r in all_residents.data]
+
+            # 1. Intentar match exacto primero
+            exact_matches = []
+            for r in all_residents.data:
+                full_name = normalize_text(r.get("full_name", "").lower())
+                search_terms = []
+                if nombre_clean:
+                    search_terms.append(normalize_text(nombre_clean.lower()))
+                if apellido_clean:
+                    search_terms.append(normalize_text(apellido_clean.lower()))
+
+                # Match si todos los términos están en el nombre completo
+                if search_terms and all(term in full_name for term in search_terms):
+                    exact_matches.append(r)
+                    logger.info(f"   ✓ Match exacto: {r.get('full_name')}")
+
+            if exact_matches:
+                if len(exact_matches) == 1:
+                    residente = exact_matches[0]
+                    logger.info(f"✅ Un solo match exacto: {residente.get('full_name')}")
+                    return JSONResponse(
+                        content={
+                            "encontrado": True,
+                            "cantidad": 1,
+                            "residente": {
+                                "nombre": residente.get("full_name"),
+                                "apartamento": residente.get("apartment"),
+                                "tiene_telefono": bool(residente.get("phone")),
+                            },
+                            "mensaje": f"Encontré a {residente.get('full_name')} en {residente.get('apartment')}.",
+                            "result": f"Encontré a {residente.get('full_name')} en {residente.get('apartment')}. ¿Desea que le notifique?",
                         },
-                        "mensaje": f"Encontré a {residente.get('full_name')} en {residente.get('apartment')}.",
-                        "result": f"Encontré a {residente.get('full_name')} en {residente.get('apartment')}. ¿Desea que le notifique?",
-                    },
-                    headers=ULTRAVOX_HEADERS
+                        headers=ULTRAVOX_HEADERS
+                    )
+                else:
+                    # Múltiples matches exactos
+                    logger.info(f"⚠️ Múltiples matches exactos ({len(exact_matches)})")
+                    return JSONResponse(
+                        content={
+                            "encontrado": True,
+                            "cantidad": len(exact_matches),
+                            "ambiguo": True,
+                            "residentes": [
+                                {"nombre": r.get("full_name"), "apartamento": r.get("apartment")}
+                                for r in exact_matches[:5]
+                            ],
+                            "mensaje": f"Hay {len(exact_matches)} residentes con ese nombre.",
+                            "result": f"Encontré {len(exact_matches)} personas con ese nombre. ¿Sabe el número de casa para identificar a la persona correcta?",
+                        },
+                        headers=ULTRAVOX_HEADERS
+                    )
+
+            # 2. No hay match exacto - intentar fuzzy matching
+            logger.info(f"🔄 Sin match exacto, probando fuzzy matching...")
+
+            # Buscar por nombre o apellido con fuzzy
+            fuzzy_results = []
+            search_query = nombre_clean or apellido_clean or nombre_buscar
+
+            if search_query:
+                fuzzy_results = fuzzy_match_name(search_query, nombres_db, threshold=0.5)
+                logger.info(f"   Fuzzy results: {fuzzy_results[:3]}")
+
+            if fuzzy_results:
+                # Hay coincidencias fuzzy
+                best_match_name, best_score = fuzzy_results[0]
+                best_resident = next(
+                    (r for r in all_residents.data if r.get("full_name") == best_match_name),
+                    None
                 )
 
-            # MÚLTIPLES RESULTADOS - necesita más información
-            logger.info(f"⚠️ Múltiples matches ({len(result.data)}) para '{nombre_buscar}'")
-            nombres_encontrados = [r.get("full_name") for r in result.data[:5]]  # Máximo 5
+                if best_score >= 0.8 and best_resident:
+                    # Match muy bueno, usar directamente
+                    logger.info(f"✅ Fuzzy match alto ({best_score:.0%}): {best_match_name}")
+                    return JSONResponse(
+                        content={
+                            "encontrado": True,
+                            "cantidad": 1,
+                            "residente": {
+                                "nombre": best_resident.get("full_name"),
+                                "apartamento": best_resident.get("apartment"),
+                                "tiene_telefono": bool(best_resident.get("phone")),
+                            },
+                            "mensaje": f"Encontré a {best_resident.get('full_name')} en {best_resident.get('apartment')}.",
+                            "result": f"Encontré a {best_resident.get('full_name')} en {best_resident.get('apartment')}. ¿Desea que le notifique?",
+                        },
+                        headers=ULTRAVOX_HEADERS
+                    )
+                elif fuzzy_results:
+                    # Match moderado, pedir confirmación
+                    sugerencias = [
+                        {"nombre": name, "score": f"{score:.0%}"}
+                        for name, score in fuzzy_results[:3]
+                    ]
+                    residentes_sugeridos = []
+                    for name, score in fuzzy_results[:3]:
+                        r = next((r for r in all_residents.data if r.get("full_name") == name), None)
+                        if r:
+                            residentes_sugeridos.append({
+                                "nombre": r.get("full_name"),
+                                "apartamento": r.get("apartment")
+                            })
 
+                    logger.info(f"🤔 Fuzzy match moderado, pidiendo confirmación")
+                    nombres_sugeridos = ", ".join([s["nombre"] for s in residentes_sugeridos[:2]])
+                    return JSONResponse(
+                        content={
+                            "encontrado": False,
+                            "sugerencias": True,
+                            "cantidad": len(residentes_sugeridos),
+                            "residentes_sugeridos": residentes_sugeridos,
+                            "mensaje": f"No encontré exactamente '{nombre_buscar}'. ¿Quiso decir {nombres_sugeridos}?",
+                            "result": f"No encontré exactamente ese nombre. ¿Se refiere a {nombres_sugeridos}?",
+                        },
+                        headers=ULTRAVOX_HEADERS
+                    )
+
+            # 3. Ni match exacto ni fuzzy - sugerir apellidos similares
+            logger.info(f"❌ Sin matches, buscando sugerencias de apellido...")
+
+            apellido_query = apellido_clean or search_query
+            if apellido_query:
+                sugerencias_apellido = suggest_similar_surnames(apellido_query)
+                if sugerencias_apellido:
+                    logger.info(f"💡 Sugerencias de apellido: {sugerencias_apellido}")
+                    return JSONResponse(
+                        content={
+                            "encontrado": False,
+                            "sugerencias": True,
+                            "cantidad": 0,
+                            "sugerencias_apellido": sugerencias_apellido,
+                            "mensaje": f"No encontré '{nombre_buscar}'. ¿Quiso decir apellido {sugerencias_apellido[0]}?",
+                            "result": f"No encontré a nadie con ese nombre. ¿El apellido es {sugerencias_apellido[0]}? Por favor confirme.",
+                        },
+                        headers=ULTRAVOX_HEADERS
+                    )
+
+            # 4. Sin resultados ni sugerencias
+            logger.info(f"❌ Sin matches ni sugerencias para '{nombre_buscar}'")
             return JSONResponse(
                 content={
-                    "encontrado": True,
-                    "cantidad": len(result.data),
-                    "ambiguo": True,
-                    "residentes": [
-                        {"nombre": r.get("full_name"), "apartamento": r.get("apartment")}
-                        for r in result.data[:5]
-                    ],
-                    "mensaje": f"Hay {len(result.data)} residentes con ese nombre. Necesito más información.",
-                    "result": f"Encontré {len(result.data)} personas con el nombre {nombre_buscar}. ¿Sabe el apellido o el número de casa para poder identificar a la persona correcta?",
+                    "encontrado": False,
+                    "cantidad": 0,
+                    "mensaje": f"No encontré ningún residente con el nombre {nombre_buscar}.",
+                    "result": f"No encontré ningún residente con ese nombre. ¿Tiene el número de casa o puede deletrear el apellido?",
                 },
                 headers=ULTRAVOX_HEADERS
             )
