@@ -1320,177 +1320,177 @@ async def get_tools_config():
     """
     Devuelve la configuración de tools para copiar a AsterSIPVox.
 
-    Copia esta configuración al archivo agents.yaml de AsterSIPVox
-    para que el agente de voz pueda llamar a estos endpoints.
+    Configurar cada tool en la interfaz de AsterSIPVox con estos valores.
+    Los parámetros van en BODY (JSON) porque usamos POST.
     """
-    base_url = f"http://YOUR_SERVER_IP:8000/tools"
+    base_url = "http://YOUR_SERVER_IP:8000/tools"
 
     tools_config = {
         "descripcion": "Configuración de tools para AsterSIPVox/Ultravox",
-        "instrucciones": "Copia selectedTools a tu agents.yaml de AsterSIPVox",
-        "base_url_ejemplo": base_url,
-        "selectedTools": [
+        "instrucciones": "Crear cada tool en AsterSIPVox con estos valores. Cambiar YOUR_SERVER_IP por la IP real.",
+        "base_url_nota": "Reemplazar YOUR_SERVER_IP con la IP del servidor SITNOVA",
+        "tools": [
             {
-                "temporaryTool": {
-                    "modelToolName": "buscar_residente",
-                    "description": "Busca un residente por nombre o número de casa. USAR PRIMERO antes de notificar.",
-                    "dynamicParameters": [
-                        {
-                            "name": "apartamento",
-                            "location": "PARAMETER_LOCATION_QUERY",
-                            "schema": {"type": "string", "description": "Número de casa o apartamento (ej: '10', 'Casa 10')"},
-                            "required": False
-                        },
-                        {
-                            "name": "nombre",
-                            "location": "PARAMETER_LOCATION_QUERY",
-                            "schema": {"type": "string", "description": "Nombre del residente a buscar"},
-                            "required": False
-                        }
-                    ],
-                    "http": {
-                        "baseUrlPattern": f"{base_url}/buscar-residente",
-                        "httpMethod": "POST"
+                "name": "buscar_residente",
+                "description": "Busca un residente por nombre o número de casa. USAR PRIMERO antes de notificar.",
+                "timeout": 5,
+                "http": {
+                    "baseUrlPattern": f"{base_url}/buscar-residente",
+                    "httpMethod": "POST"
+                },
+                "authentication": {"type": "None"},
+                "dynamicParameters": [
+                    {
+                        "name": "apartamento",
+                        "location": "PARAMETER_LOCATION_BODY",
+                        "schema": {"type": "string", "description": "Número de casa o apartamento (ej: '10', 'Casa 5')"},
+                        "required": False
+                    },
+                    {
+                        "name": "nombre",
+                        "location": "PARAMETER_LOCATION_BODY",
+                        "schema": {"type": "string", "description": "Nombre del residente a buscar"},
+                        "required": False
                     }
-                }
+                ]
             },
             {
-                "temporaryTool": {
-                    "modelToolName": "verificar_preautorizacion",
-                    "description": "Verifica si un visitante tiene pre-autorización de ingreso.",
-                    "dynamicParameters": [
-                        {
-                            "name": "nombre",
-                            "location": "PARAMETER_LOCATION_QUERY",
-                            "schema": {"type": "string", "description": "Nombre del visitante"},
-                            "required": True
-                        },
-                        {
-                            "name": "cedula",
-                            "location": "PARAMETER_LOCATION_QUERY",
-                            "schema": {"type": "string", "description": "Cédula del visitante"},
-                            "required": False
-                        },
-                        {
-                            "name": "apartamento",
-                            "location": "PARAMETER_LOCATION_QUERY",
-                            "schema": {"type": "string", "description": "Apartamento destino"},
-                            "required": False
-                        }
-                    ],
-                    "http": {
-                        "baseUrlPattern": f"{base_url}/verificar-preautorizacion",
-                        "httpMethod": "POST"
+                "name": "verificar_preautorizacion",
+                "description": "Verifica si un visitante tiene pre-autorización de ingreso.",
+                "timeout": 5,
+                "http": {
+                    "baseUrlPattern": f"{base_url}/verificar-preautorizacion",
+                    "httpMethod": "POST"
+                },
+                "authentication": {"type": "None"},
+                "dynamicParameters": [
+                    {
+                        "name": "nombre",
+                        "location": "PARAMETER_LOCATION_BODY",
+                        "schema": {"type": "string", "description": "Nombre del visitante"},
+                        "required": True
+                    },
+                    {
+                        "name": "cedula",
+                        "location": "PARAMETER_LOCATION_BODY",
+                        "schema": {"type": "string", "description": "Cédula del visitante"},
+                        "required": False
+                    },
+                    {
+                        "name": "apartamento",
+                        "location": "PARAMETER_LOCATION_BODY",
+                        "schema": {"type": "string", "description": "Apartamento destino"},
+                        "required": False
                     }
-                }
+                ]
             },
             {
-                "temporaryTool": {
-                    "modelToolName": "notificar_residente",
-                    "description": "Notifica al residente por WhatsApp. REQUIERE: nombre, cédula y motivo del visitante.",
-                    "dynamicParameters": [
-                        {
-                            "name": "apartamento",
-                            "location": "PARAMETER_LOCATION_QUERY",
-                            "schema": {"type": "string", "description": "Número de casa del residente"},
-                            "required": True
-                        },
-                        {
-                            "name": "nombre_visitante",
-                            "location": "PARAMETER_LOCATION_QUERY",
-                            "schema": {"type": "string", "description": "Nombre completo del visitante"},
-                            "required": True
-                        },
-                        {
-                            "name": "cedula",
-                            "location": "PARAMETER_LOCATION_QUERY",
-                            "schema": {"type": "string", "description": "Número de cédula del visitante"},
-                            "required": True
-                        },
-                        {
-                            "name": "motivo_visita",
-                            "location": "PARAMETER_LOCATION_QUERY",
-                            "schema": {"type": "string", "description": "Motivo de la visita"},
-                            "required": True
-                        },
-                        {
-                            "name": "placa",
-                            "location": "PARAMETER_LOCATION_QUERY",
-                            "schema": {"type": "string", "description": "Placa del vehículo (si aplica)"},
-                            "required": False
-                        }
-                    ],
-                    "http": {
-                        "baseUrlPattern": f"{base_url}/notificar-residente",
-                        "httpMethod": "POST"
+                "name": "notificar_residente",
+                "description": "Notifica al residente por WhatsApp. REQUIERE: nombre, cédula y motivo del visitante.",
+                "timeout": 10,
+                "http": {
+                    "baseUrlPattern": f"{base_url}/notificar-residente",
+                    "httpMethod": "POST"
+                },
+                "authentication": {"type": "None"},
+                "dynamicParameters": [
+                    {
+                        "name": "apartamento",
+                        "location": "PARAMETER_LOCATION_BODY",
+                        "schema": {"type": "string", "description": "Número de casa del residente"},
+                        "required": True
+                    },
+                    {
+                        "name": "nombre_visitante",
+                        "location": "PARAMETER_LOCATION_BODY",
+                        "schema": {"type": "string", "description": "Nombre completo del visitante"},
+                        "required": True
+                    },
+                    {
+                        "name": "cedula",
+                        "location": "PARAMETER_LOCATION_BODY",
+                        "schema": {"type": "string", "description": "Número de cédula del visitante"},
+                        "required": True
+                    },
+                    {
+                        "name": "motivo_visita",
+                        "location": "PARAMETER_LOCATION_BODY",
+                        "schema": {"type": "string", "description": "Motivo de la visita"},
+                        "required": True
+                    },
+                    {
+                        "name": "placa",
+                        "location": "PARAMETER_LOCATION_BODY",
+                        "schema": {"type": "string", "description": "Placa del vehículo (si aplica)"},
+                        "required": False
                     }
-                }
+                ]
             },
             {
-                "temporaryTool": {
-                    "modelToolName": "estado_autorizacion",
-                    "description": "Verifica si el residente ya respondió a la solicitud de autorización.",
-                    "dynamicParameters": [
-                        {
-                            "name": "apartamento",
-                            "location": "PARAMETER_LOCATION_QUERY",
-                            "schema": {"type": "string", "description": "Número de casa del residente"},
-                            "required": True
-                        }
-                    ],
-                    "http": {
-                        "baseUrlPattern": f"{base_url}/estado-autorizacion",
-                        "httpMethod": "POST"
+                "name": "estado_autorizacion",
+                "description": "Verifica si el residente ya respondió a la solicitud de autorización.",
+                "timeout": 5,
+                "http": {
+                    "baseUrlPattern": f"{base_url}/estado-autorizacion",
+                    "httpMethod": "POST"
+                },
+                "authentication": {"type": "None"},
+                "dynamicParameters": [
+                    {
+                        "name": "apartamento",
+                        "location": "PARAMETER_LOCATION_BODY",
+                        "schema": {"type": "string", "description": "Número de casa del residente"},
+                        "required": True
                     }
-                }
+                ]
             },
             {
-                "temporaryTool": {
-                    "modelToolName": "abrir_porton",
-                    "description": "Abre el portón de acceso. Solo usar después de recibir autorización.",
-                    "dynamicParameters": [
-                        {
-                            "name": "motivo",
-                            "location": "PARAMETER_LOCATION_QUERY",
-                            "schema": {"type": "string", "description": "Razón de apertura"},
-                            "required": True
-                        }
-                    ],
-                    "http": {
-                        "baseUrlPattern": f"{base_url}/abrir-porton",
-                        "httpMethod": "POST"
+                "name": "abrir_porton",
+                "description": "Abre el portón de acceso. Solo usar después de recibir autorización.",
+                "timeout": 5,
+                "http": {
+                    "baseUrlPattern": f"{base_url}/abrir-porton",
+                    "httpMethod": "POST"
+                },
+                "authentication": {"type": "None"},
+                "dynamicParameters": [
+                    {
+                        "name": "motivo",
+                        "location": "PARAMETER_LOCATION_BODY",
+                        "schema": {"type": "string", "description": "Razón de apertura (ej: 'visitante autorizado')"},
+                        "required": True
                     }
-                }
+                ]
             },
             {
-                "temporaryTool": {
-                    "modelToolName": "transferir_operador",
-                    "description": "Transfiere a un operador humano cuando no se puede resolver la situación.",
-                    "dynamicParameters": [
-                        {
-                            "name": "motivo",
-                            "location": "PARAMETER_LOCATION_QUERY",
-                            "schema": {"type": "string", "description": "Motivo de la transferencia"},
-                            "required": False
-                        },
-                        {
-                            "name": "nombre_visitante",
-                            "location": "PARAMETER_LOCATION_QUERY",
-                            "schema": {"type": "string", "description": "Nombre del visitante"},
-                            "required": False
-                        },
-                        {
-                            "name": "apartamento",
-                            "location": "PARAMETER_LOCATION_QUERY",
-                            "schema": {"type": "string", "description": "Apartamento destino"},
-                            "required": False
-                        }
-                    ],
-                    "http": {
-                        "baseUrlPattern": f"{base_url}/transferir-operador",
-                        "httpMethod": "POST"
+                "name": "transferir_operador",
+                "description": "Transfiere a un operador humano cuando no se puede resolver la situación.",
+                "timeout": 5,
+                "http": {
+                    "baseUrlPattern": f"{base_url}/transferir-operador",
+                    "httpMethod": "POST"
+                },
+                "authentication": {"type": "None"},
+                "dynamicParameters": [
+                    {
+                        "name": "motivo",
+                        "location": "PARAMETER_LOCATION_BODY",
+                        "schema": {"type": "string", "description": "Motivo de la transferencia"},
+                        "required": False
+                    },
+                    {
+                        "name": "nombre_visitante",
+                        "location": "PARAMETER_LOCATION_BODY",
+                        "schema": {"type": "string", "description": "Nombre del visitante"},
+                        "required": False
+                    },
+                    {
+                        "name": "apartamento",
+                        "location": "PARAMETER_LOCATION_BODY",
+                        "schema": {"type": "string", "description": "Apartamento destino"},
+                        "required": False
                     }
-                }
+                ]
             }
         ]
     }
