@@ -6,6 +6,7 @@ Webhooks para integraciones externas:
 """
 from fastapi import APIRouter, Request, HTTPException, Header
 from typing import Optional, Annotated
+from datetime import datetime
 from loguru import logger
 
 from src.config.settings import settings
@@ -146,7 +147,6 @@ async def evolution_webhook(request: Request):
     instance = payload.get("instance", "unknown")
 
     # Guardar en log para debugging
-    from datetime import datetime
     webhook_entry = {
         "timestamp": datetime.now().isoformat(),
         "event": event,
@@ -322,6 +322,146 @@ async def test_evolution_webhook():
         "all_pending_authorizations": all_auths,
         "message": "Use este endpoint después de llamar a notificar_residente para verificar el flujo"
     }
+
+
+@router.post("/evolution/simular-respuesta")
+async def simular_respuesta_residente(
+    phone: str,
+    respuesta: str = "si"
+):
+    """
+    PRUEBA: Simula la respuesta del residente sin necesidad de WhatsApp.
+
+    Uso:
+        curl -X POST "URL/webhooks/evolution/simular-respuesta?phone=50684817227&respuesta=si"
+
+    Esto actualiza directamente la autorización como si el residente hubiera respondido.
+    """
+    from src.api.routes.auth_state import _normalize_phone
+
+    logger.info(f"🧪 SIMULANDO respuesta de residente: phone={phone}, respuesta={respuesta}")
+
+    # Normalizar teléfono
+    clean_phone = _normalize_phone(phone)
+    logger.info(f"   Teléfono normalizado: {clean_phone}")
+
+    # Buscar autorización
+    key, auth = get_pending_authorization(phone)
+    logger.info(f"   Autorización encontrada: key={key}, auth={auth}")
+
+    if not auth:
+        all_auths = get_all_authorizations()
+        return {
+            "success": False,
+            "error": f"No hay autorización pendiente para {phone}",
+            "phone_buscado": clean_phone,
+            "todas_autorizaciones": all_auths,
+            "hint": "Primero llama a /tools/notificar-residente para crear una autorización"
+        }
+
+    if auth.get("status") != "pendiente":
+        return {
+            "success": False,
+            "error": f"La autorización ya fue procesada: {auth.get('status')}",
+            "auth": auth
+        }
+
+    # Procesar respuesta
+    respuesta_lower = respuesta.lower().strip()
+    palabras_si = ["si", "sí", "yes", "1", "ok", "autorizo"]
+    palabras_no = ["no", "2", "negar", "denegado"]
+
+    if any(p in respuesta_lower for p in palabras_si):
+        status = "autorizado"
+    elif any(p in respuesta_lower for p in palabras_no):
+        status = "denegado"
+    else:
+        status = "mensaje"
+
+    # Actualizar
+    if status == "mensaje":
+        success = update_authorization(phone, status, mensaje_personalizado=respuesta)
+    else:
+        success = update_authorization(phone, status)
+
+    # Verificar que se actualizó
+    key2, auth2 = get_pending_authorization(phone)
+
+    return {
+        "success": success,
+        "status_aplicado": status,
+        "phone": clean_phone,
+        "apartment": auth.get("apartment"),
+        "visitor": auth.get("visitor_name"),
+        "auth_antes": auth,
+        "auth_despues": auth2,
+        "mensaje": f"Autorización actualizada a '{status}' para {auth.get('apartment')}"
+    }
+
+
+@router.get("/evolution/diagnostico-completo")
+async def diagnostico_completo():
+    """
+    Diagnóstico completo del flujo de autorización.
+    Muestra el estado de cada componente.
+    """
+    from src.api.routes.auth_state import _get_supabase_client, _normalize_phone
+
+    resultado = {
+        "timestamp": datetime.now().isoformat(),
+        "componentes": {},
+        "autorizaciones": {},
+        "webhooks_recibidos": len(webhook_log),
+        "ultimos_webhooks": webhook_log[-5:] if webhook_log else [],
+    }
+
+    # 1. Verificar conexión a Supabase
+    try:
+        client = _get_supabase_client()
+        if client:
+            # Intentar query simple
+            test = client.table("pending_authorizations").select("count", count="exact").execute()
+            resultado["componentes"]["supabase"] = {
+                "status": "ok",
+                "total_registros": test.count if hasattr(test, 'count') else len(test.data) if test.data else 0
+            }
+        else:
+            resultado["componentes"]["supabase"] = {"status": "no_disponible", "usando": "memoria"}
+    except Exception as e:
+        resultado["componentes"]["supabase"] = {"status": "error", "error": str(e)}
+
+    # 2. Obtener todas las autorizaciones
+    all_auths = get_all_authorizations()
+    resultado["autorizaciones"] = {
+        "total": len(all_auths),
+        "pendientes": sum(1 for a in all_auths.values() if a.get("status") == "pendiente"),
+        "autorizadas": sum(1 for a in all_auths.values() if a.get("status") == "autorizado"),
+        "denegadas": sum(1 for a in all_auths.values() if a.get("status") == "denegado"),
+        "mensajes": sum(1 for a in all_auths.values() if a.get("status") == "mensaje"),
+        "detalle": all_auths
+    }
+
+    # 3. Verificar formato de teléfonos guardados
+    phones_info = []
+    for phone, auth in all_auths.items():
+        phones_info.append({
+            "phone_guardado": phone,
+            "phone_normalizado": _normalize_phone(phone),
+            "apartment": auth.get("apartment"),
+            "status": auth.get("status"),
+        })
+    resultado["phones_registrados"] = phones_info
+
+    # 4. Instrucciones de prueba
+    resultado["como_probar"] = {
+        "paso_1": "POST /tools/notificar-residente?apartamento=Casa10&nombre_visitante=Juan",
+        "paso_2": "GET /webhooks/evolution/autorizaciones (verificar que se creó)",
+        "paso_3_opcion_a": "POST /webhooks/evolution/simular-respuesta?phone=TELEFONO&respuesta=si",
+        "paso_3_opcion_b": "El residente responde 'si' por WhatsApp real",
+        "paso_4": "GET /tools/estado-autorizacion?apartamento=Casa10 (verificar estado=autorizado)",
+    }
+
+    return resultado
 
 
 @router.get("/evolution/health")
