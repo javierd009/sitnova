@@ -10,6 +10,8 @@ export interface CreateResidentData {
   phone: string
   phone_secondary?: string
   email?: string
+  address?: string
+  address_instructions?: string
   notification_preference: 'whatsapp' | 'call' | 'both'
 }
 

@@ -21,6 +21,8 @@ export interface ResidentFormData {
   phone: string
   phone_secondary?: string
   email?: string
+  address?: string
+  address_instructions?: string
   notification_preference: 'whatsapp' | 'call' | 'both'
 }
 
@@ -39,6 +41,8 @@ export function ResidentForm({ resident, onSubmit, isLoading }: ResidentFormProp
     phone: resident?.phone || '',
     phone_secondary: resident?.phone_secondary || '',
     email: resident?.email || '',
+    address: resident?.address || '',
+    address_instructions: resident?.address_instructions || '',
     notification_preference: resident?.notification_preference || 'whatsapp',
   })
 
@@ -143,6 +147,36 @@ export function ResidentForm({ resident, onSubmit, isLoading }: ResidentFormProp
                 onChange={(e) => handleChange('notification_preference', e.target.value as ResidentFormData['notification_preference'])}
                 options={notificationOptions}
               />
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-sm font-medium text-gray-700">Ubicacion de la Casa</h3>
+              <p className="text-xs text-gray-500">
+                Estas indicaciones se le daran al visitante cuando pregunte como llegar a su casa.
+              </p>
+
+              <Input
+                label="Direccion"
+                value={formData.address}
+                onChange={(e) => handleChange('address', e.target.value)}
+                placeholder="Ej: Condominio Las Palmas, Bloque 3"
+              />
+
+              <div className="space-y-1">
+                <label className="block text-sm font-medium text-gray-700">
+                  Instrucciones para llegar
+                </label>
+                <textarea
+                  value={formData.address_instructions}
+                  onChange={(e) => handleChange('address_instructions', e.target.value)}
+                  placeholder="Ej: Segunda casa a la derecha despues de la piscina, porton verde"
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                />
+                <p className="text-xs text-gray-400">
+                  El portero virtual leera estas indicaciones al visitante autorizado.
+                </p>
+              </div>
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t">

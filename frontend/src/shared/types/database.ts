@@ -32,6 +32,8 @@ export interface Resident {
   phone: string
   phone_secondary: string | null
   email: string | null
+  address: string | null
+  address_instructions: string | null
   notification_preference: 'whatsapp' | 'call' | 'both'
   is_active: boolean
   created_at: string

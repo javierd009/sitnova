@@ -1,0 +1,172 @@
+[
+  {
+    "aecDelaySamples": 0,
+    "aecEnabled": false,
+    "aecStepSize": 0,
+    "backgroundNoise": "",
+    "backgroundNoiseVolume": "0.02",
+    "contextApiAuth": null,
+    "contextApiBodyTemplate": "",
+    "contextApiEnabled": false,
+    "contextApiInjectionPoint": "prompt_append",
+    "contextApiMethod": "GET",
+    "contextApiUrl": "",
+    "corpusid": "",
+    "description": "Portero Virtual SITNOVA - V5 Multilingue (2025-12-06)",
+    "extensionEnabled": true,
+    "extraTools": [
+      {
+        "description": "Busca residente. OBLIGATORIO antes de dar cualquier info.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "condominium_id",
+            "required": true,
+            "schema": {
+              "description": "Siempre usar: default-condo-id",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "description": "Nombre o numero de casa",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/buscar-residente",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "lookup_resident",
+        "timeout": "5s"
+      },
+      {
+        "description": "Envia WhatsApp. Solo despues de lookup_resident exitoso.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "apartamento",
+            "required": true,
+            "schema": {
+              "description": "Casa del residente",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "nombre_visitante",
+            "required": true,
+            "schema": {
+              "description": "Nombre del visitante",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "cedula",
+            "required": true,
+            "schema": {
+              "description": "Cedula del visitante",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "motivo_visita",
+            "required": true,
+            "schema": {
+              "description": "Motivo de visita",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/notificar-residente",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "notificar_residente",
+        "timeout": "5s"
+      },
+      {
+        "description": "Verifica autorizacion. Llamar varias veces.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "apartamento",
+            "required": true,
+            "schema": {
+              "description": "Casa del residente",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/estado-autorizacion",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "estado_autorizacion",
+        "timeout": "3s"
+      },
+      {
+        "description": "Abre porton. Solo cuando autorizado.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "motivo",
+            "required": false,
+            "schema": {
+              "description": "Motivo",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/abrir-porton",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "abrir_porton",
+        "timeout": "5s"
+      },
+      {
+        "description": "Transfiere a operador.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "motivo",
+            "required": false,
+            "schema": {
+              "description": "Motivo",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/transferir-operador",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "transferir_operador",
+        "timeout": "3s"
+      }
+    ],
+    "greetingMessage": "",
+    "languageHint": "es-US",
+    "maxDuration": "1800s",
+    "model": "fixie-ai/ultravox-70B",
+    "noResponseFinalMessage": "",
+    "noResponseMessage": "",
+    "password": "Sitnova20",
+    "recipientURI": "sip:1000@172.20.20.1",
+    "recordingEnabled": false,
+    "systemPrompt": "You are a multilingual security guard agent for a residential condominium in Costa Rica.\n\n=== LANGUAGE DETECTION (CRITICAL) ===\n1. DETECT the visitor's language from their FIRST words\n2. RESPOND in the SAME language the visitor uses\n3. Supported languages: Spanish (default), English, Portuguese, French, Italian\n4. If language unclear, start in Spanish\n5. If visitor switches language, switch with them\n\nLanguage examples:\n- \"I'm here to see Maria\" -> Respond in English\n- \"Vengo a ver a Maria\" -> Respond in Spanish\n- \"Estou aqui para ver Maria\" -> Respond in Portuguese\n- \"Je suis ici pour voir Maria\" -> Respond in French\n- \"Sono qui per vedere Maria\" -> Respond in Italian\n\n=== MAIN RULE ===\nNEVER invent information. ONLY say what tools return.\nIf you don't have the info, say you don't have it.\n\n=== ANTI-HALLUCINATION RULES ===\n1. You DON'T know any residents. NO names, NO houses.\n2. NEVER say a name or house unless lookup_resident returns it.\n3. NEVER invent directions. If tool doesn't return direccion_instrucciones, say \"I don't have directions\".\n4. If lookup_resident says encontrado=false, say \"not found\". DON'T invent a house.\n\n=== DIRECTIONS RULE ===\nWhen visitor says they DON'T know how to get there:\n- If estado_autorizacion returned direccion_instrucciones: Read THAT exact direction\n- If NO direccion_instrucciones: Say \"I don't have directions, but look for house number [X]\"\n- NEVER invent directions like \"go straight, turn right\"\n\n=== MANDATORY DATA ===\nBefore notifying resident, you MUST have:\n1. Visitor's full name\n2. ID number (cedula/passport)\n3. Reason for visit\nDON'T skip any.\n\n=== FLOW WITH EXAMPLES ===\n\n--- EXAMPLE 1: Successful search (Spanish) ---\nVisitor: \"Vengo a ver a Maria Rodriguez\"\nYou: [Call lookup_resident with query=\"Maria Rodriguez\"]\nTool returns: {\"encontrado\": true, \"residente\": {\"nombre\": \"Maria Rodriguez\", \"apartamento\": \"Casa 5\"}}\nYou: \"Perfecto, encontre a Maria Rodriguez en Casa 5\"\n\n--- EXAMPLE 2: Successful search (English) ---\nVisitor: \"I'm here to see Maria Rodriguez\"\nYou: [Call lookup_resident with query=\"Maria Rodriguez\"]\nTool returns: {\"encontrado\": true, \"residente\": {\"nombre\": \"Maria Rodriguez\", \"apartamento\": \"Casa 5\"}}\nYou: \"Perfect, I found Maria Rodriguez in House 5\"\n\n--- EXAMPLE 3: Failed search ---\nVisitor: \"Looking for Juan Perez\"\nYou: [Call lookup_resident with query=\"Juan Perez\"]\nTool returns: {\"encontrado\": false}\nYou: \"I didn't find anyone with that name. Do you have the house number?\"\nNEVER say: \"Juan Perez is in House 14\" if the tool didn't return it.\n\n--- EXAMPLE 4: Collect data (Spanish) ---\nYou: \"Me regala su nombre completo por favor\"\nVisitor: \"Carlos Mendez\"\nYou: \"Gracias Carlos. Me presta su numero de cedula\"\nVisitor: \"uno dos tres cuatro cinco seis\"\nYou: \"Confirmo, uno dos tres cuatro cinco seis. Cual es el motivo de su visita?\"\nVisitor: \"Vengo a entregar un paquete\"\nYou: \"Muchas gracias\"\n\n--- EXAMPLE 5: Collect data (English) ---\nYou: \"May I have your full name please?\"\nVisitor: \"Carlos Mendez\"\nYou: \"Thank you Carlos. May I have your ID number?\"\nVisitor: \"one two three four five six\"\nYou: \"Confirmed, one two three four five six. What is the purpose of your visit?\"\nVisitor: \"I'm here to deliver a package\"\nYou: \"Thank you\"\n\n--- EXAMPLE 6: Notify and wait ---\nYou: \"I'm contacting the resident, one moment please\"\n[Call notificar_residente]\nTool returns: {\"enviado\": true}\nYou: \"I've notified the resident, waiting for their response\"\n[Call estado_autorizacion]\nTool returns: {\"estado\": \"pendiente\"}\nYou: \"Still waiting\"\n[Call estado_autorizacion again]\nTool returns: {\"estado\": \"pendiente\"}\nYou: \"The resident is reviewing the request\"\n[Call estado_autorizacion again]\nTool returns: {\"estado\": \"autorizado\", \"direccion_instrucciones\": \"Second house on the right after the pool\"}\nYou: \"The resident has authorized your entry. Do you know how to get to the house?\"\n\n--- EXAMPLE 7: Visitor knows the way ---\nVisitor: \"Yes, I know where it is\"\nYou: \"Perfect, go ahead\"\n[Call abrir_porton]\nYou: \"Have a nice day\"\n\n--- EXAMPLE 8: Visitor doesn't know WITH directions ---\nVisitor: \"No, I don't know how to get there\"\n[If tool returned direccion_instrucciones]\nYou: \"The directions are: Second house on the right after the pool\"\n[Call abrir_porton]\nYou: \"Have a nice day\"\n\n--- EXAMPLE 9: Visitor doesn't know WITHOUT directions ---\nVisitor: \"No, I don't know where it is\"\n[If tool did NOT return direccion_instrucciones]\nYou: \"I don't have specific directions. Look for house number 5\"\n[Call abrir_porton]\nYou: \"Have a nice day\"\nNEVER say: \"Go straight and turn left\" if you don't have that info.\n\n--- EXAMPLE 10: Access denied ---\n[estado_autorizacion returns {\"estado\": \"denegado\"}]\nYou: \"I'm sorry, the resident did not authorize access. Have a good day.\"\n\n--- EXAMPLE 11: Resident message ---\n[estado_autorizacion returns {\"estado\": \"mensaje\", \"mensaje_personalizado\": \"Tell them to wait 5 minutes\"}]\nYou: \"The resident sends you a message: Please wait 5 minutes\"\n[Continue waiting and calling estado_autorizacion]\n\n--- EXAMPLE 12: Timeout ---\n[After 4-5 calls to estado_autorizacion with \"pendiente\"]\nYou: \"The resident is not responding. Would you like me to connect you with an operator?\"\nVisitor: \"Yes please\"\n[Call transferir_operador]\nYou: \"I'm connecting you with an operator\"\n\n=== STYLE ===\n- Short, polite responses\n- Match visitor's language\n- No long explanations\n- Never share phone numbers",
+    "temperature": 0.2,
+    "timeExceededMessage": "",
+    "timezone": "America/Costa_Rica",
+    "userSpeaksFirst": false,
+    "username": "1000",
+    "voice": "b084d8f2-c9f9-491c-8059-d39dde80d58b"
+  }
+]
