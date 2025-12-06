@@ -154,6 +154,7 @@ class Settings(BaseSettings):
     # OPERADOR HUMANO (Human in the Loop)
     # ============================================
     operator_phone: str = ""  # Telefono del operador de respaldo (WhatsApp)
+    operator_extension: str = "1002"  # Extension SIP del operador para transferir llamadas
     operator_timeout: int = 120  # Segundos antes de ofrecer transferir a operador
 
     # ============================================

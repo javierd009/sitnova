@@ -1450,14 +1450,22 @@ async def transferir_operador(
 
         if result_wa.get("success"):
             logger.success(f"✅ Operador notificado: {settings.operator_phone}")
+            # Obtener extension del operador para transferencia SIP
+            operator_ext = settings.operator_extension or "1002"
             return JSONResponse(
                 content={
                     "transferido": True,
                     "mensaje": "Se ha notificado al operador.",
                     "operador_notificado": True,
-                    "result": "He notificado a un operador humano. En unos momentos le atendera una persona. Por favor espere.",
+                    "extension_transferencia": operator_ext,
+                    "sip_transfer": f"sip:{operator_ext}@localhost",
+                    "accion": "transfer",
+                    "result": f"Le comunico con un operador humano. Transfiriendo a extension {operator_ext}.",
                 },
-                headers=ULTRAVOX_HEADERS
+                headers={
+                    **ULTRAVOX_HEADERS,
+                    "X-Ultravox-Transfer-To": operator_ext,
+                }
             )
         else:
             logger.error(f"❌ Error notificando operador: {result_wa.get('error')}")
@@ -1480,6 +1488,138 @@ async def transferir_operador(
             },
             headers=ULTRAVOX_HEADERS
         )
+
+
+# ============================================
+# OBTENER DIRECCION DEL RESIDENTE
+# ============================================
+@router.post("/obtener-direccion")
+async def obtener_direccion(
+    request: Request,
+    apartamento: Optional[str] = Query(None, description="Numero de casa o apartamento"),
+):
+    """
+    Obtiene las instrucciones de direccion de un residente.
+
+    Usar cuando el visitante pregunta como llegar a la casa
+    despues de que el residente autorizo el acceso.
+    """
+    body = await log_request(request, "/obtener-direccion")
+
+    apt = body.get("apartamento") or apartamento
+
+    if not apt:
+        return JSONResponse(
+            content={
+                "encontrado": False,
+                "direccion": None,
+                "result": "Necesito el numero de casa para buscar las indicaciones.",
+            },
+            headers=ULTRAVOX_HEADERS
+        )
+
+    # Normalizar apartamento
+    apt_clean = apt.lower().replace("casa", "").replace("apartamento", "").replace("apt", "").strip()
+
+    logger.info(f"📍 Buscando direccion para: {apt} (normalizado: {apt_clean})")
+
+    try:
+        supabase = get_supabase()
+        if supabase:
+            # Buscar por apartamento exacto o parcial
+            result = supabase.table("residents").select(
+                "apartment, address, address_instructions, full_name"
+            ).or_(
+                f"apartment.ilike.%{apt_clean}%,apartment.ilike.%{apt}%"
+            ).limit(1).execute()
+
+            if result.data and len(result.data) > 0:
+                resident = result.data[0]
+                direccion = resident.get("address_instructions") or resident.get("address")
+
+                if direccion:
+                    logger.success(f"✅ Direccion encontrada para {apt}: {direccion}")
+                    return JSONResponse(
+                        content={
+                            "encontrado": True,
+                            "apartamento": resident.get("apartment"),
+                            "direccion": direccion,
+                            "residente": resident.get("full_name"),
+                            "result": f"Las indicaciones para llegar son: {direccion}",
+                        },
+                        headers=ULTRAVOX_HEADERS
+                    )
+                else:
+                    logger.info(f"ℹ️ Residente {apt} no tiene direccion configurada")
+                    return JSONResponse(
+                        content={
+                            "encontrado": True,
+                            "apartamento": resident.get("apartment"),
+                            "direccion": None,
+                            "result": f"No tengo las indicaciones de como llegar. Busque el numero de casa que es {resident.get('apartment')}.",
+                        },
+                        headers=ULTRAVOX_HEADERS
+                    )
+
+        # No se encontro
+        logger.warning(f"⚠️ No se encontro residente con apartamento: {apt}")
+        return JSONResponse(
+            content={
+                "encontrado": False,
+                "direccion": None,
+                "result": f"No encontre informacion de direccion para {apt}. Busque el numero de casa.",
+            },
+            headers=ULTRAVOX_HEADERS
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Error buscando direccion: {e}")
+        return JSONResponse(
+            content={
+                "encontrado": False,
+                "direccion": None,
+                "result": "No pude buscar las indicaciones. Busque el numero de casa.",
+            },
+            headers=ULTRAVOX_HEADERS
+        )
+
+
+# ============================================
+# COLGAR LLAMADA
+# ============================================
+@router.post("/colgar-llamada")
+async def colgar_llamada(
+    request: Request,
+    motivo: Optional[str] = Query(None, description="Motivo de colgar"),
+):
+    """
+    Termina la llamada actual.
+
+    Usar despues de:
+    - Abrir el porton exitosamente
+    - Denegar acceso
+    - Completar transferencia a operador
+    """
+    body = await log_request(request, "/colgar-llamada")
+
+    reason = body.get("motivo") or motivo or "Conversacion completada"
+
+    logger.info(f"📞 Finalizando llamada: {reason}")
+
+    # Retornar accion de hangup para que AsterSIPVox/Ultravox termine la llamada
+    return JSONResponse(
+        content={
+            "accion": "hangup",
+            "motivo": reason,
+            "result": "Que tenga buen dia.",
+            # Indicador especial para Ultravox
+            "ultravox_action": "end_call",
+        },
+        headers={
+            **ULTRAVOX_HEADERS,
+            "X-Ultravox-End-Call": "true",  # Header especial para terminar
+        }
+    )
 
 
 # ============================================
