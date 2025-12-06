@@ -697,7 +697,9 @@ async def notificar_residente(
                 "enviado": True,
                 "mensaje": f"Notificación enviada a {resident_name} ({apt}). Por favor espere la autorización.",
                 "metodo": ", ".join(metodos_usados),
-                "result": f"He enviado una notificación por WhatsApp al residente de {apt}. Por favor espere un momento mientras confirma si autoriza su ingreso.",
+                "apartamento": apt,
+                "next_action": "CALL estado_autorizacion WITH apartamento TO CHECK FOR RESPONSE",
+                "result": f"Ya notifiqué al residente de {apt}. Voy a verificar si responde.",
             },
             headers=ULTRAVOX_HEADERS
         )
@@ -1298,6 +1300,12 @@ async def estado_autorizacion(
 
                 logger.info(f"⏳ Estado: PENDIENTE para {apt} (espera: {wait_seconds:.0f}s)")
 
+                # Determinar next_action basado en tiempo de espera
+                if wait_seconds < 120:
+                    next_action = "KEEP CALLING estado_autorizacion - RESPONSE STILL PENDING"
+                else:
+                    next_action = "OFFER TO TRANSFER TO OPERATOR - TIMEOUT EXCEEDED"
+
                 return JSONResponse(
                     content={
                         "apartamento": apt,
@@ -1305,6 +1313,7 @@ async def estado_autorizacion(
                         "mensaje": f"Esperando respuesta del residente de {apt}.",
                         "visitor_name": visitor,
                         "tiempo_espera_segundos": int(wait_seconds),
+                        "next_action": next_action,
                         "result": wait_message,
                     },
                     headers=ULTRAVOX_HEADERS

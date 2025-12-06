@@ -27,7 +27,9 @@
       "Bash(timeout 10 python3:*)",
       "Bash(for i in 1 2 3 4 5 6)",
       "Bash(do echo \"=== Intento $i ===\")",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(for i in 1 2 3)",
+      "Bash(./diagnostico.sh:*)"
     ],
     "deny": [],
     "ask": []
