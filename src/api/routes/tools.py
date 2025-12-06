@@ -562,29 +562,25 @@ async def notificar_residente(
                     use_mock=(not settings.evolution_api_key)
                 )
 
-                # Mensaje de notificación completo con todos los datos del visitante
+                # Mensaje de notificación completo con TODOS los datos del visitante
+                # IMPORTANTE: Mostrar siempre cédula y motivo (seguridad)
                 mensaje_wa = (
                     f"🚪 *Visita en portería*\n\n"
-                    f"Hay una persona esperando en la entrada:\n"
+                    f"Hay una persona esperando en la entrada:\n\n"
                     f"👤 *Nombre:* {visitante}\n"
+                    f"🪪 *Cédula:* {visitor_cedula if visitor_cedula else 'No proporcionada'}\n"
+                    f"📝 *Motivo:* {visitor_motivo if visitor_motivo else 'No proporcionado'}\n"
                 )
-                # Agregar cédula (importante para seguridad)
-                if visitor_cedula:
-                    mensaje_wa += f"🪪 *Cédula:* {visitor_cedula}\n"
-                else:
-                    mensaje_wa += f"🪪 *Cédula:* No proporcionada\n"
-                # Agregar motivo de visita
-                if visitor_motivo:
-                    mensaje_wa += f"📝 *Motivo:* {visitor_motivo}\n"
-                # Agregar placa si viene en vehículo
+                # Agregar placa solo si viene en vehículo
                 if visitor_placa:
                     mensaje_wa += f"🚗 *Placa:* {visitor_placa}\n"
                 # Destino
                 mensaje_wa += f"🏠 *Destino:* {apt}\n"
                 # Instrucciones de respuesta
                 mensaje_wa += (
-                    f"\nResponda *SI* para autorizar o *NO* para denegar.\n"
-                    f"También puede enviar un mensaje para el visitante."
+                    f"\n✅ Responda *SI* para autorizar\n"
+                    f"❌ Responda *NO* para denegar\n"
+                    f"💬 O envíe un mensaje personalizado para el visitante"
                 )
 
                 result_wa = evolution.send_text(whatsapp_number, mensaje_wa)
