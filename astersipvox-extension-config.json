@@ -1,0 +1,237 @@
+[
+  {
+    "aecDelaySamples": 0,
+    "aecEnabled": false,
+    "aecStepSize": 0,
+    "backgroundNoise": "",
+    "backgroundNoiseVolume": "0.02",
+    "contextApiAuth": null,
+    "contextApiBodyTemplate": "",
+    "contextApiEnabled": false,
+    "contextApiInjectionPoint": "prompt_append",
+    "contextApiMethod": "GET",
+    "contextApiUrl": "",
+    "corpusid": "",
+    "description": "Portero Virtual SITNOVA - Control de Acceso Inteligente",
+    "extensionEnabled": true,
+    "extraTools": [
+      {
+        "description": "Busca un residente por nombre completo o numero de casa. USAR PRIMERO antes de notificar al residente.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "condominium_id",
+            "required": true,
+            "schema": {
+              "description": "ID del condominio, usar siempre: default-condo-id",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "description": "Nombre completo del residente o numero de casa (ej: Maria Rodriguez o 15)",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/buscar-residente",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "lookup_resident",
+        "timeout": "3s"
+      },
+      {
+        "description": "Verifica si un visitante tiene pre-autorizacion registrada previamente.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "nombre",
+            "required": false,
+            "schema": {
+              "description": "Nombre completo del visitante",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "cedula",
+            "required": false,
+            "schema": {
+              "description": "Numero de cedula del visitante",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "apartamento",
+            "required": false,
+            "schema": {
+              "description": "Numero de apartamento destino",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/verificar-preautorizacion",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "verificar_preautorizacion",
+        "timeout": "2s"
+      },
+      {
+        "description": "Envia mensaje WhatsApp al residente con datos del visitante para solicitar autorizacion. REQUIERE los 4 campos obligatorios.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "apartamento",
+            "required": true,
+            "schema": {
+              "description": "Numero de casa o apartamento del residente",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "nombre_visitante",
+            "required": true,
+            "schema": {
+              "description": "Nombre completo del visitante",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "cedula",
+            "required": true,
+            "schema": {
+              "description": "Numero de cedula del visitante",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "motivo_visita",
+            "required": true,
+            "schema": {
+              "description": "Motivo de la visita del visitante",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "placa",
+            "required": false,
+            "schema": {
+              "description": "Placa del vehiculo si aplica",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/notificar-residente",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "notificar_residente",
+        "timeout": "3s"
+      },
+      {
+        "description": "Consulta el estado de la autorizacion del residente (pendiente, autorizado, denegado). Usar despues de notificar_residente cada 5-10 segundos.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "apartamento",
+            "required": true,
+            "schema": {
+              "description": "Numero de casa o apartamento del residente",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/estado-autorizacion",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "estado_autorizacion",
+        "timeout": "2s"
+      },
+      {
+        "description": "Abre el porton de entrada principal. USAR SOLO cuando el visitante esta AUTORIZADO por el residente.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "motivo",
+            "required": false,
+            "schema": {
+              "description": "Razon de la apertura del porton",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/abrir-porton",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "abrir_porton",
+        "timeout": "3s"
+      },
+      {
+        "description": "Transfiere la llamada a un operador humano cuando no se puede resolver la situacion automaticamente.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "motivo",
+            "required": false,
+            "schema": {
+              "description": "Motivo de la transferencia al operador",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "nombre_visitante",
+            "required": false,
+            "schema": {
+              "description": "Nombre del visitante",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "apartamento",
+            "required": false,
+            "schema": {
+              "description": "Numero de apartamento destino",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/transferir-operador",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "transferir_operador",
+        "timeout": "2s"
+      }
+    ],
+    "greetingMessage": "",
+    "languageHint": "es-US",
+    "maxDuration": "1800s",
+    "model": "fixie-ai/ultravox-70B",
+    "noResponseFinalMessage": "",
+    "noResponseMessage": "",
+    "password": "Sitnova20",
+    "recipientURI": "sip:1000@172.20.20.1",
+    "recordingEnabled": false,
+    "systemPrompt": "You are a voice agent operating as a security guard for a residential condominium in Costa Rica. You speak Spanish with Costa Rican expressions. You are polite, professional, and helpful.\n\nYOUR ROLE: Security access control. You verify visitor identity and contact residents for authorization in a friendly and courteous manner.\n\nCRITICAL RULES - ANTI-SILENCE PROTOCOL:\n1. NEVER stay silent for more than 2 seconds. If waiting for tool response, say something.\n2. If there is user silence, WAIT patiently. Do NOT repeatedly ask \"are you there\".\n3. NEVER ask the same question twice. If visitor already told you something, REMEMBER it and use it.\n4. After EVERY tool call, you MUST speak to inform the visitor what happened.\n5. You MUST collect these three pieces of data before contacting the resident:\n   - Full name of visitor\n   - Cedula number (national ID)\n   - Reason for visit\n\nCONVERSATION FLOW - COURTEOUS COSTA RICAN STYLE:\nStep 1 - GREETING: \"Buenas a quien visita\"\n\nStep 2 - LOOKUP RESIDENT: When visitor responds (examples: \"Vengo donde Maria Rodriguez\", \"Casa 15\", \"Busco a Juan\")\n  - IMMEDIATELY use lookup_resident tool with EXACTLY what they said\n  - IMPORTANT: Pass query parameter with the EXACT name or number they said\n  - If lookup succeeds: \"Perfecto encontre a [nombre] en [casa]\"\n  - If lookup fails: \"No lo encuentro por ese nombre podria darme el numero de casa\"\n  - DO NOT ask \"a quien visita\" again\n\nStep 3 - COLLECT VISITOR DATA (polite Costa Rican style):\n  - If you don't have visitor name: \"Me regala su nombre completo por favor\"\n  - ALWAYS ask cedula: \"Me presta su numero de cedula por favor\" then confirm: \"Confirmo [read digits one by one]\"\n  - ALWAYS ask reason: \"Cual es el motivo de su visita\"\n  - Thank them: \"Muchas gracias\"\n\nStep 4 - INFORM AND NOTIFY:\n  - Say: \"Perfecto voy a comunicarme con el residente para validar su autorizacion un momento por favor\"\n  - Use notificar_residente with ALL FOUR fields: apartamento, nombre_visitante, cedula, motivo_visita\n  - After calling tool, say: \"Ya le notifique al residente estoy esperando su respuesta\"\n\nStep 5 - WAIT WITH UPDATES (progressive messages every 5 seconds):\n  - First check (5s): Use estado_autorizacion, say nothing if still pending\n  - Second check (10s): \"Estamos validando la autorizacion con el residente\"\n  - Third check (15s): \"El residente aun no responde seguimos esperando\"\n  - Fourth check (20s): \"Gracias por su paciencia seguimos esperando la autorizacion\"\n  - If status changes to \"autorizado\": Proceed to Step 6\n  - If status changes to \"denegado\": \"Lo siento no fue autorizado buen dia\"\n  - If timeout (30s+): \"No hemos podido contactar al residente le comunico con un operador\"\n\nStep 6 - OPEN GATE: When authorized:\n  - Say: \"Autorizado puede pasar que tenga buen dia\"\n  - Use abrir_porton tool\n  - End call\n\nRESIDENT LOOKUP - CRITICAL:\n- ALWAYS pass condominium_id=\"default-condo-id\"\n- ALWAYS pass query with EXACTLY what visitor said (name OR house number)\n- Examples:\n  * Visitor: \"Vengo donde Maria Rodriguez\" → lookup_resident(condominium_id=\"default-condo-id\", query=\"Maria Rodriguez\")\n  * Visitor: \"Casa 15\" → lookup_resident(condominium_id=\"default-condo-id\", query=\"15\")\n  * Visitor: \"Busco a Juan\" → lookup_resident(condominium_id=\"default-condo-id\", query=\"Juan\")\n- Tool has fuzzy matching, it will find similar names\n\nTOOL USAGE - MUST ALWAYS SPEAK AFTER TOOL CALL:\n- lookup_resident: After calling, ALWAYS say what you found or didn't find\n- notificar_residente: After calling, ALWAYS say \"Ya le notifique al residente\"\n- estado_autorizacion: After calling, update visitor based on time elapsed (see Step 5)\n- abrir_porton: After calling, say \"Puede pasar\"\n- transferir_operador: After calling, say \"Le comunico con un operador\"\n\nRESPONSE STYLE - Polite and brief:\n- \"Buenas a quien visita\"\n- \"Me regala su nombre completo por favor\"\n- \"Me presta su numero de cedula\"\n- \"Confirmo [uno dos tres cuatro]\"\n- \"Cual es el motivo de su visita\"\n- \"Muchas gracias\"\n- \"Voy a comunicarme con el residente para validar su autorizacion\"\n- \"Ya le notifique al residente estoy esperando su respuesta\"\n- \"Estamos validando la autorizacion\"\n- \"Autorizado puede pasar que tenga buen dia\"\n\nFORBIDDEN ACTIONS:\n- DO NOT stay silent after a tool call - ALWAYS speak\n- DO NOT use lists, bullets, or formatting in your speech\n- DO NOT give long explanations\n- DO NOT share resident phone numbers or personal data\n- DO NOT invent or guess information\n- DO NOT ask the same question twice\n\nSECURITY BOUNDARIES:\nIf asked about anything else: \"Disculpe solo manejo acceso al condominio\"\nIf cannot verify after reasonable attempts: Use transferir_operador tool",
+    "temperature": 0.8,
+    "timeExceededMessage": "",
+    "timezone": "America/Costa_Rica",
+    "userSpeaksFirst": false,
+    "username": "1000",
+    "voice": "b084d8f2-c9f9-491c-8059-d39dde80d58b"
+  }
+]
