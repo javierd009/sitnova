@@ -716,6 +716,18 @@ async def buscar_residente(
     """
     body = await log_request(request, "/buscar-residente")
 
+    # ============ LOGGING EXHAUSTIVO PARA DEBUGGING ============
+    logger.info(f"🔍🔍🔍 BUSCAR-RESIDENTE DEBUG START 🔍🔍🔍")
+    logger.info(f"📥 Body recibido: {body}")
+    logger.info(f"📥 Query params - apartamento: {apartamento}")
+    logger.info(f"📥 Query params - nombre: {nombre}")
+    logger.info(f"📥 Query params - query: {query}")
+    logger.info(f"📥 Query params - condominium_id: {condominium_id}")
+    logger.info(f"📥 Request method: {request.method}")
+    logger.info(f"📥 Request URL: {request.url}")
+    logger.info(f"📥 Content-Type: {request.headers.get('content-type')}")
+    # =========================================================
+
     # Compatibilidad: query puede ser nombre o apartamento
     search_query = body.get("query") or query
 
@@ -736,6 +748,11 @@ async def buscar_residente(
 
     condo_id = body.get("condominium_id") or condominium_id or "default-condo-id"
 
+    logger.info(f"📊 PARAMETROS PROCESADOS:")
+    logger.info(f"   - search_query: '{search_query}'")
+    logger.info(f"   - apt: '{apt}'")
+    logger.info(f"   - nombre_buscar: '{nombre_buscar}'")
+    logger.info(f"   - condo_id: '{condo_id}'")
     logger.info(f"🔍 Buscando residente: apartamento={apt}, nombre={nombre_buscar}")
 
     try:
