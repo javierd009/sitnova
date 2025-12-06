@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     camera_cedula_id: str = "cam_cedula"
 
     # ============================================
-    # FREEPBX (PBX para llamadas)
+    # FREEPBX (PBX para llamadas - Legacy AMI)
     # ============================================
     freepbx_host: str = "192.168.1.50"
     freepbx_ami_port: int = 5038
@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     # ============================================
     astersipvox_url: str = "http://localhost:7070"  # URL del servidor AsterSIPVox
     astersipvox_api_key: str = ""  # Bearer token para autenticacion
-    astersipvox_extension: str = "205"  # Extension del asistente virtual
+    astersipvox_extension: str = "1000"  # Extension del asistente virtual (CORREGIDO)
 
     # ============================================
     # VISIÓN ARTIFICIAL

@@ -10,7 +10,7 @@ import time
 from loguru import logger
 
 from src.config.settings import settings
-from src.api.routes import webhooks, vision, admin, voice, tools
+from src.api.routes import webhooks, vision, admin, tools, voice
 
 
 # ============================================
@@ -27,16 +27,10 @@ async def lifespan(app: FastAPI):
     logger.info(f"LLM Provider: {settings.llm_provider}")
     logger.info(f"Model: {settings.llm_model}")
 
-    # TODO: Inicializar conexiones
-    # - Redis
-    # - Supabase
-    # - LangGraph checkpointer
-
     yield
 
     # SHUTDOWN
     logger.info("🛑 Apagando SITNOVA Agent...")
-    # TODO: Cerrar conexiones
 
 
 # ============================================

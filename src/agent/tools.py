@@ -9,6 +9,7 @@ from typing import Optional,  Dict, Any
 
 from src.database.connection import get_supabase
 from src.config.settings import settings
+from src.api.routes.auth_state import get_authorization_by_apartment, set_pending_authorization
 
 
 # ============================================
@@ -87,6 +88,84 @@ def check_authorized_vehicle(condominium_id: str, plate: str) -> Dict[str, Any]:
             "authorized": False,
             "error": str(e)
         }
+
+
+@tool
+def lookup_resident(condominium_id: str, query: str) -> Dict[str, Any]:
+    """
+    Busca un residente por nombre o número de casa/apartamento.
+
+    Args:
+        condominium_id: UUID del condominio
+        query: Nombre parcial (ej: "Juan") o número de casa (ej: "101")
+
+    Returns:
+        dict con: found (bool), residents (list)
+    """
+    logger.info(f"🔍 Buscando residente: '{query}' en condominio {condominium_id}")
+
+    try:
+        supabase = get_supabase()
+
+        if not supabase:
+            # Mock
+            if "101" in query or "Juan" in query:
+                return {
+                    "found": True,
+                    "residents": [{
+                        "id": "mock-resident-1",
+                        "name": "Juan Pérez",
+                        "apartment": "101",
+                        "phone": "+50688888888"
+                    }]
+                }
+            return {"found": False, "residents": []}
+
+        # Intentar buscar por número de unidad exacto
+        result_unit = supabase.table("residents").select(
+            "id, full_name, unit_number, phone_primary"
+        ).eq(
+            "condominium_id", condominium_id
+        ).eq(
+            "unit_number", query
+        ).execute()
+
+        if result_unit.data:
+            return {
+                "found": True,
+                "residents": [{
+                    "id": r["id"],
+                    "name": r["full_name"],
+                    "apartment": r["unit_number"],
+                    "phone": r["phone_primary"]
+                } for r in result_unit.data]
+            }
+
+        # Si no, buscar por nombre (ilike)
+        result_name = supabase.table("residents").select(
+            "id, full_name, unit_number, phone_primary"
+        ).eq(
+            "condominium_id", condominium_id
+        ).ilike(
+            "full_name", f"%{query}%"
+        ).execute()
+
+        if result_name.data:
+            return {
+                "found": True,
+                "residents": [{
+                    "id": r["id"],
+                    "name": r["full_name"],
+                    "apartment": r["unit_number"],
+                    "phone": r["phone_primary"]
+                } for r in result_name.data]
+            }
+
+        return {"found": False, "residents": []}
+
+    except Exception as e:
+        logger.error(f"❌ Error buscando residente: {e}")
+        return {"found": False, "error": str(e)}
 
 
 @tool
@@ -490,26 +569,40 @@ def open_gate(condominium_id: str, door_id: int = 1, reason: str = "authorized")
 def notify_resident_whatsapp(
     resident_phone: str,
     visitor_name: str,
-    cedula_photo_url: Optional[str] = None
+    visit_reason: Optional[str] = None,
+    cedula_photo_url: Optional[str] = None,
+    apartment: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Envía notificación WhatsApp al residente con foto del visitante.
+    Envía notificación WhatsApp al residente con foto del visitante y motivo.
 
     Args:
         resident_phone: Teléfono del residente (+506...)
         visitor_name: Nombre del visitante
+        visit_reason: Motivo de la visita (opcional)
         cedula_photo_url: URL de la foto de cédula (opcional)
+        apartment: Número de casa (para tracking de respuesta)
 
     Returns:
         dict con: sent (bool), message_id, timestamp
     """
-    logger.info(f"💬 Enviando WhatsApp a {resident_phone} sobre visitante: {visitor_name}")
+    logger.info(f"💬 Enviando WhatsApp a {resident_phone} sobre {visitor_name} (Motivo: {visit_reason})")
 
     try:
         from src.services.messaging import create_evolution_client
         from src.config.settings import get_settings
-
+        
         settings = get_settings()
+
+        # 1. Registrar estado pendiente (para que el webhook sepa qué actualizar)
+        if apartment:
+            set_pending_authorization(
+                phone=resident_phone,
+                apartment=apartment,
+                visitor_name=visitor_name,
+                cedula=None, # TODO: Pasar cédula si está disponible en el state
+                placa=None
+            )
 
         # Determinar si usar mock
         use_mock = not settings.EVOLUTION_API_URL or settings.EVOLUTION_API_URL == "http://localhost:8080"
@@ -523,9 +616,11 @@ def notify_resident_whatsapp(
         )
 
         # Preparar mensaje
+        reason_text = f"\n📝 Motivo: {visit_reason}" if visit_reason else ""
+        
         message = f"""🏠 *Visitante en Portería*
 
-👤 Nombre: {visitor_name}
+👤 Nombre: {visitor_name}{reason_text}
 
 ¿Autoriza el ingreso?
 
@@ -569,89 +664,93 @@ Responda:
             "timestamp": datetime.now().isoformat()
         }
 
+@tool
+def check_authorization_status(apartment: str) -> Dict[str, Any]:
+    """
+    Verifica si el residente ya respondió a la solicitud de autorización.
+    
+    Args:
+        apartment: Número de casa/apartamento
+        
+    Returns:
+        dict con: status ("pendiente", "autorizado", "denegado"), message (str)
+    """
+    logger.info(f"🔄 Verificando estado de autorización para: {apartment}")
+    
+    phone, auth = get_authorization_by_apartment(apartment)
+    
+    if not auth:
+        return {
+            "status": "not_found",
+            "message": "No se encontró solicitud pendiente."
+        }
+        
+    status = auth.get("status", "pendiente")
+    logger.info(f"   Estado actual: {status}")
+    
+    return {
+        "status": status,
+        "visitor_name": auth.get("visitor_name"),
+        "timestamp": auth.get("timestamp"),
+        "responded_at": auth.get("responded_at"),
+        "mensaje_personalizado": auth.get("mensaje_personalizado")
+    }
+
 
 @tool
-def call_resident(
+async def call_resident(
     resident_extension: str,
     visitor_name: str,
     timeout: int = 30
 ) -> Dict[str, Any]:
     """
-    Llama al residente via FreePBX para autorizar una visita.
+    Inicia una llamada inteligente al residente usando AsterSIPVox.
+    La IA de voz se encargará de negociar la autorización.
 
     Args:
-        resident_extension: Extensión del residente (ej: "101")
-        visitor_name: Nombre del visitante
-        timeout: Timeout en segundos para esperar respuesta
+        resident_extension: Número o extensión a llamar
+        visitor_name: Nombre del visitante para dar contexto
+        timeout: (No usado en AsterSIPVox, se mantiene por compatibilidad)
 
     Returns:
-        dict con: call_completed (bool), response ("authorized"|"denied"|"no_answer"), duration
+        dict con estado de inicio de llamada
     """
-    logger.info(f"📞 Llamando a extensión {resident_extension}")
+    logger.info(f"📞 Iniciando llamada IA a {resident_extension} via AsterSIPVox")
 
     try:
-        from src.services.pbx import create_freepbx_client
-        from src.config.settings import get_settings
-
-        settings = get_settings()
-
-        # Determinar si usar mock
-        use_mock = not settings.FREEPBX_HOST or settings.FREEPBX_HOST == "localhost"
-
-        # Crear cliente AMI
-        with create_freepbx_client(
-            host=settings.FREEPBX_HOST,
-            username=settings.FREEPBX_AMI_USER,
-            secret=settings.FREEPBX_AMI_SECRET,
-            port=settings.FREEPBX_AMI_PORT,
-            use_mock=use_mock
-        ) as client:
-
-            # Originar llamada
-            call_result = client.originate_call(
-                extension=resident_extension,
-                caller_id=f"Portero <{settings.FREEPBX_PORTERO_EXTENSION}>",
-                timeout=timeout
-            )
-
-            if not call_result.get("success"):
-                logger.error(f"❌ Error originando llamada")
-                return {
-                    "call_completed": False,
-                    "response": "no_answer",
-                    "error": call_result.get("error")
-                }
-
-            # Esperar respuesta DTMF
-            logger.info("⏳ Esperando respuesta del residente (1=Autorizar, 2=Denegar)...")
-            dtmf = client.wait_for_dtmf(timeout=timeout)
-
-            # Interpretar respuesta
-            if dtmf == "1":
-                response = "authorized"
-                logger.success("✅ Residente autorizó el ingreso")
-            elif dtmf == "2":
-                response = "denied"
-                logger.warning("❌ Residente denegó el ingreso")
-            else:
-                response = "no_answer"
-                logger.warning("⏱️  No hubo respuesta del residente")
-
-            return {
-                "call_completed": True,
-                "response": response,
-                "dtmf_received": dtmf,
-                "duration": timeout  # Aproximado
-            }
-
-    except Exception as e:
-        logger.error(f"❌ Excepción llamando a residente: {e}")
-        # Fallback a mock
-        logger.success(f"✅ Llamada completada (mock fallback)")
+        from src.services.pbx.astersipvox_client import get_astersipvox_client
+        
+        client = get_astersipvox_client()
+        
+        # Contexto que le damos a la IA de Voz para que sepa qué decir
+        context_text = (
+            f"Estás llamando al residente de la casa {resident_extension}. "
+            f"Hay un visitante en portería llamado {visitor_name}. "
+            "Tu objetivo es preguntar si autorizan la entrada. "
+            "Si dicen SÍ, usa la herramienta 'open_gate'. "
+            "Si dicen NO, despídete amablemente."
+        )
+        
+        result = await client.initiate_call(
+            destination=resident_extension,
+            context_text=context_text
+        )
+        
+        logger.success(f"✅ Llamada IA iniciada correctamente a {resident_extension}")
+        
         return {
             "call_completed": True,
-            "response": "authorized",  # Mock: siempre autoriza
-            "duration": 15
+            "response": "call_initiated",
+            "message": "La IA de voz está gestionando la llamada.",
+            "details": result
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error iniciando llamada AsterSIPVox: {e}")
+        # Fallback a mock o error controlado
+        return {
+            "call_completed": False,
+            "error": str(e)
         }
 
 
@@ -668,11 +767,13 @@ def get_all_tools():
     """
     return [
         check_authorized_vehicle,
+        lookup_resident,
         check_pre_authorized_visitor,
         log_access_event,
         capture_plate_ocr,
         capture_cedula_ocr,
         open_gate,
         notify_resident_whatsapp,
+        check_authorization_status,
         call_resident,
     ]
