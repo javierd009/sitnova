@@ -1520,3 +1520,44 @@ async def get_tools_config():
     }
 
     return tools_config
+
+
+# ============================================
+# DIAGNOSTIC ENDPOINT
+# ============================================
+
+@router.api_route("/debug-params", methods=["GET", "POST"])
+async def debug_params(request: Request):
+    """
+    Endpoint de diagnóstico para ver qué parámetros está enviando AsterSIPVox.
+    Útil para debugging cuando las búsquedas no funcionan.
+    """
+    body = await log_request(request, "/debug-params")
+
+    # Obtener query params
+    query_params = dict(request.query_params)
+
+    # Obtener headers
+    headers = dict(request.headers)
+
+    logger.info(f"🔍 DEBUG - Body: {body}")
+    logger.info(f"🔍 DEBUG - Query params: {query_params}")
+    logger.info(f"🔍 DEBUG - Headers (selected): {headers.get('content-type')}, {headers.get('user-agent')}")
+
+    return JSONResponse(
+        content={
+            "received": {
+                "body": body,
+                "query_params": query_params,
+                "method": request.method,
+                "url": str(request.url),
+            },
+            "analysis": {
+                "has_query": "query" in body or "query" in query_params,
+                "has_nombre": "nombre" in body or "nombre" in query_params,
+                "has_apartamento": "apartamento" in body or "apartamento" in query_params,
+            },
+            "message": "Parámetros recibidos correctamente"
+        },
+        headers=ULTRAVOX_HEADERS
+    )

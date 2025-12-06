@@ -23,7 +23,11 @@
       "Bash(git checkout:*)",
       "Bash(git restore:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(timeout 10 python3:*)",
+      "Bash(for i in 1 2 3 4 5 6)",
+      "Bash(do echo \"=== Intento $i ===\")",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []
