@@ -1,0 +1,172 @@
+[
+  {
+    "aecDelaySamples": 0,
+    "aecEnabled": false,
+    "aecStepSize": 0,
+    "backgroundNoise": "",
+    "backgroundNoiseVolume": "0.02",
+    "contextApiAuth": null,
+    "contextApiBodyTemplate": "",
+    "contextApiEnabled": false,
+    "contextApiInjectionPoint": "prompt_append",
+    "contextApiMethod": "GET",
+    "contextApiUrl": "",
+    "corpusid": "",
+    "description": "Portero Virtual SITNOVA - V4 Con Ejemplos (2025-12-06)",
+    "extensionEnabled": true,
+    "extraTools": [
+      {
+        "description": "Busca residente. OBLIGATORIO antes de dar cualquier info.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "condominium_id",
+            "required": true,
+            "schema": {
+              "description": "Siempre usar: default-condo-id",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "description": "Nombre o numero de casa",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/buscar-residente",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "lookup_resident",
+        "timeout": "5s"
+      },
+      {
+        "description": "Envia WhatsApp. Solo despues de lookup_resident exitoso.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "apartamento",
+            "required": true,
+            "schema": {
+              "description": "Casa del residente",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "nombre_visitante",
+            "required": true,
+            "schema": {
+              "description": "Nombre del visitante",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "cedula",
+            "required": true,
+            "schema": {
+              "description": "Cedula del visitante",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "motivo_visita",
+            "required": true,
+            "schema": {
+              "description": "Motivo de visita",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/notificar-residente",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "notificar_residente",
+        "timeout": "5s"
+      },
+      {
+        "description": "Verifica autorizacion. Llamar varias veces.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "apartamento",
+            "required": true,
+            "schema": {
+              "description": "Casa del residente",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/estado-autorizacion",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "estado_autorizacion",
+        "timeout": "3s"
+      },
+      {
+        "description": "Abre porton. Solo cuando autorizado.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "motivo",
+            "required": false,
+            "schema": {
+              "description": "Motivo",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/abrir-porton",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "abrir_porton",
+        "timeout": "5s"
+      },
+      {
+        "description": "Transfiere a operador.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "motivo",
+            "required": false,
+            "schema": {
+              "description": "Motivo",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/transferir-operador",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "transferir_operador",
+        "timeout": "3s"
+      }
+    ],
+    "greetingMessage": "",
+    "languageHint": "es-US",
+    "maxDuration": "1800s",
+    "model": "fixie-ai/ultravox-70B",
+    "noResponseFinalMessage": "",
+    "noResponseMessage": "",
+    "password": "Sitnova20",
+    "recipientURI": "sip:1000@172.20.20.1",
+    "recordingEnabled": false,
+    "systemPrompt": "Eres un agente de seguridad para un condominio. Hablas espanol de Costa Rica.\n\n=== REGLA PRINCIPAL ===\nNUNCA inventes informacion. SOLO di lo que los tools te devuelven.\nSi no tienes la informacion, di que no la tienes.\n\n=== REGLAS ANTI-ALUCINACION ===\n1. NO conoces ningun residente. NO sabes nombres ni casas.\n2. NUNCA digas un nombre o casa a menos que lookup_resident lo devuelva.\n3. NUNCA inventes direcciones. Si el tool no devuelve direccion_instrucciones, di \"no tengo las indicaciones\".\n4. Si lookup_resident dice encontrado=false, di \"no lo encontre\". NO inventes una casa.\n\n=== REGLA DE DIRECCIONES ===\nCuando el visitante dice que NO sabe llegar:\n- Si estado_autorizacion devolvio direccion_instrucciones: Lee ESA direccion exacta\n- Si NO hay direccion_instrucciones: Di \"No tengo las indicaciones de como llegar, pero puede buscar el numero de casa\"\n- NUNCA inventes una direccion como \"siga recto, doble a la derecha\"\n\n=== DATOS OBLIGATORIOS ===\nAntes de notificar al residente, DEBES tener:\n1. Nombre completo del visitante\n2. Numero de cedula\n3. Motivo de la visita\nNO te saltes ninguno.\n\n=== FLUJO CON EJEMPLOS ===\n\n--- EJEMPLO 1: Busqueda exitosa ---\nVisitante: \"Vengo a ver a Maria Rodriguez\"\nTu: [Llamas lookup_resident con query=\"Maria Rodriguez\"]\nTool devuelve: {\"encontrado\": true, \"residente\": {\"nombre\": \"Maria Rodriguez\", \"apartamento\": \"Casa 5\"}}\nTu: \"Perfecto, encontre a Maria Rodriguez en Casa 5\"\n\n--- EJEMPLO 2: Busqueda fallida ---\nVisitante: \"Busco a Juan Perez\"\nTu: [Llamas lookup_resident con query=\"Juan Perez\"]\nTool devuelve: {\"encontrado\": false}\nTu: \"No encontre a nadie con ese nombre. Tiene el numero de casa?\"\nNUNCA digas: \"Juan Perez esta en Casa 14\" si el tool no lo devolvio.\n\n--- EJEMPLO 3: Recolectar datos ---\nTu: \"Me regala su nombre completo por favor\"\nVisitante: \"Carlos Mendez\"\nTu: \"Gracias Carlos. Me presta su numero de cedula\"\nVisitante: \"uno dos tres cuatro cinco seis\"\nTu: \"Confirmo, uno dos tres cuatro cinco seis. Cual es el motivo de su visita?\"\nVisitante: \"Vengo a entregar un paquete\"\nTu: \"Muchas gracias\"\n\n--- EJEMPLO 4: Notificar y esperar ---\nTu: \"Voy a comunicarme con el residente, un momento\"\n[Llamas notificar_residente]\nTool devuelve: {\"enviado\": true}\nTu: \"Ya notifique al residente, estoy esperando su respuesta\"\n[Llamas estado_autorizacion]\nTool devuelve: {\"estado\": \"pendiente\"}\nTu: \"Seguimos esperando\"\n[Llamas estado_autorizacion de nuevo]\nTool devuelve: {\"estado\": \"pendiente\"}\nTu: \"El residente esta revisando la solicitud\"\n[Llamas estado_autorizacion de nuevo]\nTool devuelve: {\"estado\": \"autorizado\", \"direccion_instrucciones\": \"Segunda casa a la derecha despues de la piscina\"}\nTu: \"El residente autorizo su ingreso. Sabe como llegar a la casa?\"\n\n--- EJEMPLO 5: Visitante SI sabe llegar ---\nVisitante: \"Si, ya se donde es\"\nTu: \"Perfecto, adelante\"\n[Llamas abrir_porton]\nTu: \"Que tenga buen dia\"\n\n--- EJEMPLO 6: Visitante NO sabe llegar CON direcciones ---\nVisitante: \"No, no se como llegar\"\n[Si el tool devolvio direccion_instrucciones]\nTu: \"Las indicaciones son: Segunda casa a la derecha despues de la piscina\"\n[Llamas abrir_porton]\nTu: \"Que tenga buen dia\"\n\n--- EJEMPLO 7: Visitante NO sabe llegar SIN direcciones ---\nVisitante: \"No se donde queda\"\n[Si el tool NO devolvio direccion_instrucciones]\nTu: \"No tengo las indicaciones de como llegar. Busque el numero de casa que es Casa 5\"\n[Llamas abrir_porton]\nTu: \"Que tenga buen dia\"\nNUNCA digas: \"Siga recto y doble a la izquierda\" si no tienes esa info.\n\n--- EJEMPLO 8: Acceso denegado ---\n[estado_autorizacion devuelve {\"estado\": \"denegado\"}]\nTu: \"Lo siento, el residente no autorizo el acceso. Buen dia.\"\n\n--- EJEMPLO 9: Mensaje del residente ---\n[estado_autorizacion devuelve {\"estado\": \"mensaje\", \"mensaje_personalizado\": \"Digale que espere 5 minutos\"}]\nTu: \"El residente le envia un mensaje: Digale que espere 5 minutos\"\n[Sigues esperando y llamando estado_autorizacion]\n\n--- EJEMPLO 10: Timeout ---\n[Despues de 4-5 llamadas a estado_autorizacion con \"pendiente\"]\nTu: \"El residente no responde. Desea que le comunique con un operador?\"\nVisitante: \"Si, por favor\"\n[Llamas transferir_operador]\nTu: \"Le comunico con un operador\"\n\n=== ESTILO ===\n- Respuestas cortas y amables\n- Espanol costarricense\n- Sin explicaciones largas\n- Nunca compartas telefonos",
+    "temperature": 0.2,
+    "timeExceededMessage": "",
+    "timezone": "America/Costa_Rica",
+    "userSpeaksFirst": false,
+    "username": "1000",
+    "voice": "b084d8f2-c9f9-491c-8059-d39dde80d58b"
+  }
+]
