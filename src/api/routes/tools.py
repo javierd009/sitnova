@@ -336,17 +336,20 @@ class DenegarAccesoResponse(BaseModel):
 # ============================================
 
 @router.post("/verificar-visitante")
+@router.post("/verificar-preautorizacion")
 async def verificar_visitante(
     request: Request,
     cedula: Optional[str] = Query(None),
     nombre: Optional[str] = Query(None),
+    apartamento: Optional[str] = Query(None),
 ):
     """
     Verifica si un visitante tiene pre-autorizacion.
     Acepta parametros via body JSON o query params.
+    Alias: /verificar-preautorizacion (para AsterSIPVox)
     """
     # Log raw request for debugging
-    body = await log_request(request, "/verificar-visitante")
+    body = await log_request(request, "/verificar-preautorizacion")
 
     # Get params from body or query
     visitor_cedula = body.get("cedula") or cedula
@@ -694,12 +697,20 @@ async def buscar_residente(
     request: Request,
     apartamento: Optional[str] = Query(None, description="Numero de casa o apartamento"),
     nombre: Optional[str] = Query(None, description="Nombre del residente"),
+    query: Optional[str] = Query(None, description="Busqueda general (nombre o apartamento)"),
+    condominium_id: Optional[str] = Query(None, description="ID del condominio"),
 ):
     """
     Busca residentes por apartamento O por nombre con lógica inteligente.
 
     IMPORTANTE: Usar este endpoint ANTES de notificar para verificar
     que existe el residente y obtener información correcta.
+
+    Parámetros:
+    - query: Búsqueda general (puede ser nombre o número de casa)
+    - apartamento: Número de casa específico
+    - nombre: Nombre del residente
+    - condominium_id: ID del condominio (opcional, se usa "default-condo-id")
 
     Casos manejados:
     - Búsqueda por apartamento: Soporta variaciones ("Casa 10", "casa10", "la diez")
@@ -709,8 +720,25 @@ async def buscar_residente(
     """
     body = await log_request(request, "/buscar-residente")
 
-    apt = body.get("apartamento") or apartamento
-    nombre_buscar = body.get("nombre") or nombre
+    # Compatibilidad: query puede ser nombre o apartamento
+    search_query = body.get("query") or query
+
+    # Determinar si query es número de casa o nombre
+    if search_query:
+        # Si empieza con dígito, probablemente es apartamento
+        if search_query.strip() and search_query.strip()[0].isdigit():
+            apt = body.get("apartamento") or apartamento or search_query
+            nombre_buscar = body.get("nombre") or nombre
+        else:
+            # Si no, es nombre
+            apt = body.get("apartamento") or apartamento
+            nombre_buscar = body.get("nombre") or nombre or search_query
+    else:
+        # Sin query, usar parámetros individuales
+        apt = body.get("apartamento") or apartamento
+        nombre_buscar = body.get("nombre") or nombre
+
+    condo_id = body.get("condominium_id") or condominium_id or "default-condo-id"
 
     logger.info(f"🔍 Buscando residente: apartamento={apt}, nombre={nombre_buscar}")
 
