@@ -76,15 +76,27 @@ PHONETIC_CORRECTIONS = {
     "amires": "ramirez",
     "olorado": "colorado",
     "oloraro": "colorado",
-    # Variaciones de nombres
-    "deizy": "daisy",
-    "deisy": "daisy",
-    "daysi": "daisy",
+    # Variaciones de nombres (normalizadas a forma común)
     "jhon": "john",
     "jon": "john",
-    "maria": "maria",
-    "jose": "jose",
 }
+
+# Patrones de variación fonética bidireccional
+# Estos se aplicarán dinámicamente para generar variaciones
+PHONETIC_VARIATIONS = [
+    ("ai", "ei"),  # Daisy ↔ Deisy
+    ("ei", "ai"),  # Deisy ↔ Daisy
+    ("y", "i"),    # Daisy ↔ Daisi
+    ("i", "y"),    # Daisi ↔ Daisy
+    ("ll", "y"),   # Lluis ↔ Yuis
+    ("y", "ll"),   # Yolanda ↔ Llolanda (menos común pero posible)
+    ("b", "v"),    # Bictoria ↔ Victoria
+    ("v", "b"),    # Victoria ↔ Bictoria
+    ("s", "z"),    # Rosa ↔ Roza
+    ("z", "s"),    # Roza ↔ Rosa
+    ("c", "s"),    # Cecilia ↔ Sesilia
+    ("s", "c"),    # Sesilia ↔ Cecilia
+]
 
 
 def get_phonetic_correction(word: str) -> str:
@@ -93,36 +105,98 @@ def get_phonetic_correction(word: str) -> str:
     return PHONETIC_CORRECTIONS.get(word_lower, word)
 
 
+def generate_phonetic_variations(text: str, max_variations: int = 5) -> List[str]:
+    """
+    Genera variaciones fonéticas de un texto para matching más robusto.
+
+    Ejemplos:
+        "Daisy" → ["Daisy", "Deisy", "Daisi"]
+        "Deisy" → ["Deisy", "Daisy", "Deisi"]
+        "Victoria" → ["Victoria", "Bictoria"]
+
+    Args:
+        text: Texto a variar
+        max_variations: Máximo de variaciones a generar
+
+    Returns:
+        Lista de variaciones fonéticas (incluye el original)
+    """
+    if not text:
+        return [text]
+
+    # Normalizar primero (quitar acentos)
+    text_normalized = normalize_text(text.lower().strip())
+
+    # Siempre incluir el original
+    variations = {text_normalized}
+
+    # Aplicar cada patrón de variación
+    for pattern_from, pattern_to in PHONETIC_VARIATIONS:
+        if pattern_from in text_normalized:
+            # Generar variación reemplazando el patrón
+            variation = text_normalized.replace(pattern_from, pattern_to)
+            variations.add(variation)
+
+            # Limitar el número de variaciones para evitar explosión combinatoria
+            if len(variations) >= max_variations:
+                break
+
+    return list(variations)
+
+
 def fuzzy_match_name(query: str, candidates: List[str], threshold: float = 0.6) -> List[Tuple[str, float]]:
     """
     Busca coincidencias fuzzy entre un nombre y una lista de candidatos.
+    Ahora incluye variaciones fonéticas para mejor matching con speech-to-text.
 
     Returns:
         Lista de (nombre, score) ordenada por score descendente
     """
     query_normalized = normalize_text(query.lower().strip())
-    results = []
+
+    # Generar variaciones fonéticas del query
+    query_variations = generate_phonetic_variations(query_normalized)
+    logger.debug(f"🔄 Variaciones fonéticas de '{query_normalized}': {query_variations}")
+
+    results = {}  # Usar dict para evitar duplicados, key=candidate, value=max_score
 
     for candidate in candidates:
         candidate_normalized = normalize_text(candidate.lower().strip())
 
-        # Calcular similitud
-        ratio = difflib.SequenceMatcher(None, query_normalized, candidate_normalized).ratio()
+        # Generar variaciones del candidato también
+        candidate_variations = generate_phonetic_variations(candidate_normalized)
 
-        # Bonus si el query esta contenido en el candidato o viceversa
-        if query_normalized in candidate_normalized or candidate_normalized in query_normalized:
-            ratio = min(ratio + 0.2, 1.0)
+        best_ratio = 0.0
 
-        # Bonus si comparten el mismo inicio
-        if candidate_normalized.startswith(query_normalized[:3]) if len(query_normalized) >= 3 else False:
-            ratio = min(ratio + 0.1, 1.0)
+        # Probar todas las combinaciones de variaciones
+        for q_var in query_variations:
+            for c_var in candidate_variations:
+                # Calcular similitud
+                ratio = difflib.SequenceMatcher(None, q_var, c_var).ratio()
 
-        if ratio >= threshold:
-            results.append((candidate, ratio))
+                # Bonus si el query esta contenido en el candidato o viceversa
+                if q_var in c_var or c_var in q_var:
+                    ratio = min(ratio + 0.2, 1.0)
 
-    # Ordenar por score descendente
-    results.sort(key=lambda x: x[1], reverse=True)
-    return results
+                # Bonus si comparten el mismo inicio
+                if len(q_var) >= 3 and c_var.startswith(q_var[:3]):
+                    ratio = min(ratio + 0.1, 1.0)
+
+                # Guardar el mejor ratio encontrado
+                if ratio > best_ratio:
+                    best_ratio = ratio
+
+        # Si supera el threshold, guardar
+        if best_ratio >= threshold:
+            # Si ya existe, mantener el mejor score
+            if candidate in results:
+                results[candidate] = max(results[candidate], best_ratio)
+            else:
+                results[candidate] = best_ratio
+
+    # Convertir a lista y ordenar por score descendente
+    sorted_results = sorted(results.items(), key=lambda x: x[1], reverse=True)
+    return sorted_results
 
 
 def suggest_similar_surnames(query: str, threshold: float = 0.5) -> List[str]:
@@ -843,6 +917,14 @@ async def buscar_residente(
             nombre_clean, apellido_clean = extract_name_parts(nombre_buscar)
             logger.info(f"🔍 Nombre limpio: '{nombre_clean}', Apellido: '{apellido_clean}'")
 
+            # LOG: Mostrar variaciones fonéticas que se usarán
+            if nombre_clean:
+                nombre_vars = generate_phonetic_variations(normalize_text(nombre_clean.lower()))
+                logger.info(f"🔄 Variaciones fonéticas de nombre '{nombre_clean}': {nombre_vars}")
+            if apellido_clean:
+                apellido_vars = generate_phonetic_variations(normalize_text(apellido_clean.lower()))
+                logger.info(f"🔄 Variaciones fonéticas de apellido '{apellido_clean}': {apellido_vars}")
+
             # Si no se pudo extraer nada, intentar con el texto original
             if not nombre_clean and not apellido_clean:
                 nombre_clean = nombre_buscar.split()[0] if nombre_buscar else None
@@ -867,20 +949,58 @@ async def buscar_residente(
             # Crear lista de nombres para fuzzy matching
             nombres_db = [r.get("full_name", "") for r in all_residents.data]
 
-            # 1. Intentar match exacto primero
+            # 1. Intentar match exacto primero (con variaciones fonéticas)
             exact_matches = []
             for r in all_residents.data:
                 full_name = normalize_text(r.get("full_name", "").lower())
-                search_terms = []
-                if nombre_clean:
-                    search_terms.append(normalize_text(nombre_clean.lower()))
-                if apellido_clean:
-                    search_terms.append(normalize_text(apellido_clean.lower()))
 
-                # Match si todos los términos están en el nombre completo
-                if search_terms and all(term in full_name for term in search_terms):
-                    exact_matches.append(r)
-                    logger.info(f"   ✓ Match exacto: {r.get('full_name')}")
+                # Preparar términos de búsqueda con sus variaciones fonéticas
+                search_terms_with_variations = []
+                if nombre_clean:
+                    nombre_variations = generate_phonetic_variations(normalize_text(nombre_clean.lower()))
+                    search_terms_with_variations.append(nombre_variations)
+                if apellido_clean:
+                    apellido_variations = generate_phonetic_variations(normalize_text(apellido_clean.lower()))
+                    search_terms_with_variations.append(apellido_variations)
+
+                # Generar variaciones del nombre completo en DB también
+                full_name_words = full_name.split()
+                full_name_variations_by_word = [
+                    generate_phonetic_variations(word) for word in full_name_words
+                ]
+
+                # Match si CUALQUIER variación de cada término de búsqueda está en CUALQUIER variación del nombre completo
+                if search_terms_with_variations:
+                    match_found = True
+                    matched_variations = []  # Para logging
+                    for search_term_variations in search_terms_with_variations:
+                        # Verificar si al menos una variación del término se encuentra en el nombre
+                        term_match = False
+                        matched_var = None
+                        for variation in search_term_variations:
+                            # Buscar en el nombre completo o en sus palabras individuales
+                            if variation in full_name:
+                                term_match = True
+                                matched_var = variation
+                                break
+                            # También buscar por palabra (para manejar nombres compuestos)
+                            for word_variations in full_name_variations_by_word:
+                                if variation in word_variations:
+                                    term_match = True
+                                    matched_var = variation
+                                    break
+                            if term_match:
+                                break
+
+                        if term_match:
+                            matched_variations.append(matched_var)
+                        else:
+                            match_found = False
+                            break
+
+                    if match_found:
+                        exact_matches.append(r)
+                        logger.info(f"   ✓ Match exacto (fonético): {r.get('full_name')} usando variaciones {matched_variations}")
 
             if exact_matches:
                 if len(exact_matches) == 1:
