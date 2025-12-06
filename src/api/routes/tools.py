@@ -1585,6 +1585,98 @@ async def obtener_direccion(
 
 
 # ============================================
+# DIAGNOSTICO DE RESIDENTE
+# ============================================
+@router.get("/debug-residente/{apartamento}")
+async def debug_residente(apartamento: str):
+    """
+    Endpoint de diagnostico para ver todos los datos de un residente.
+    Util para verificar si address_instructions tiene datos.
+    """
+    logger.info(f"🔍 DEBUG: Buscando datos completos para {apartamento}")
+
+    apt_clean = apartamento.lower().replace("casa", "").replace("apartamento", "").strip()
+
+    try:
+        supabase = get_supabase()
+        if supabase:
+            # Buscar TODOS los campos del residente
+            result = supabase.table("residents").select("*").or_(
+                f"apartment.ilike.%{apt_clean}%,apartment.ilike.%{apartamento}%"
+            ).limit(1).execute()
+
+            if result.data and len(result.data) > 0:
+                resident = result.data[0]
+                return {
+                    "encontrado": True,
+                    "datos_completos": resident,
+                    "columnas_direccion": {
+                        "address": resident.get("address"),
+                        "address_instructions": resident.get("address_instructions"),
+                    },
+                    "columnas_disponibles": list(resident.keys()) if resident else []
+                }
+
+            return {
+                "encontrado": False,
+                "mensaje": f"No se encontro residente con apartamento: {apartamento}",
+            }
+
+        return {"error": "Supabase no disponible"}
+
+    except Exception as e:
+        logger.error(f"❌ Error en debug: {e}")
+        return {"error": str(e)}
+
+
+@router.post("/actualizar-direccion")
+async def actualizar_direccion(request: Request):
+    """
+    Actualiza las instrucciones de direccion de un residente.
+    Body: {"apartamento": "casa 10", "address_instructions": "Segunda casa despues de la piscina"}
+    """
+    body = await log_request(request, "/actualizar-direccion")
+
+    apt = body.get("apartamento")
+    direccion = body.get("address_instructions")
+
+    if not apt or not direccion:
+        return JSONResponse(
+            content={"error": "Requiere apartamento y address_instructions"},
+            status_code=400
+        )
+
+    apt_clean = apt.lower().replace("casa", "").replace("apartamento", "").strip()
+
+    try:
+        supabase = get_supabase()
+        if supabase:
+            # Actualizar el campo address_instructions
+            result = supabase.table("residents").update({
+                "address_instructions": direccion
+            }).or_(
+                f"apartment.ilike.%{apt_clean}%,apartment.ilike.%{apt}%"
+            ).execute()
+
+            if result.data and len(result.data) > 0:
+                logger.success(f"✅ Direccion actualizada para {apt}: {direccion}")
+                return {
+                    "actualizado": True,
+                    "apartamento": apt,
+                    "address_instructions": direccion,
+                    "mensaje": "Direccion actualizada correctamente"
+                }
+
+            return {"actualizado": False, "mensaje": "No se encontro el residente"}
+
+        return {"error": "Supabase no disponible"}
+
+    except Exception as e:
+        logger.error(f"❌ Error actualizando direccion: {e}")
+        return {"error": str(e)}
+
+
+# ============================================
 # COLGAR LLAMADA
 # ============================================
 @router.post("/colgar-llamada")

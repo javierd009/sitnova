@@ -1,0 +1,185 @@
+[
+  {
+    "aecDelaySamples": 0,
+    "aecEnabled": false,
+    "aecStepSize": 0,
+    "backgroundNoise": "",
+    "backgroundNoiseVolume": "0.02",
+    "contextApiAuth": null,
+    "contextApiBodyTemplate": "",
+    "contextApiEnabled": false,
+    "contextApiInjectionPoint": "prompt_append",
+    "contextApiMethod": "GET",
+    "contextApiUrl": "",
+    "corpusid": "",
+    "description": "Portero Virtual SITNOVA - V8 Fixed Built-in Tools (2025-12-06)",
+    "extensionEnabled": true,
+    "extraTools": [
+      {
+        "description": "Busca residente. OBLIGATORIO antes de dar cualquier info.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "condominium_id",
+            "required": true,
+            "schema": {
+              "description": "Siempre usar: default-condo-id",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "description": "Nombre o numero de casa",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/buscar-residente",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "lookup_resident",
+        "timeout": "5s"
+      },
+      {
+        "description": "Envia WhatsApp. Solo despues de lookup_resident exitoso.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "apartamento",
+            "required": true,
+            "schema": {
+              "description": "Casa del residente",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "nombre_visitante",
+            "required": true,
+            "schema": {
+              "description": "Nombre del visitante",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "cedula",
+            "required": true,
+            "schema": {
+              "description": "Cedula del visitante",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "motivo_visita",
+            "required": true,
+            "schema": {
+              "description": "Motivo de visita",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/notificar-residente",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "notificar_residente",
+        "timeout": "5s"
+      },
+      {
+        "description": "Verifica autorizacion. Llamar varias veces.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "apartamento",
+            "required": true,
+            "schema": {
+              "description": "Casa del residente",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/estado-autorizacion",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "estado_autorizacion",
+        "timeout": "3s"
+      },
+      {
+        "description": "Obtiene direcciones de la casa. Usar cuando visitante no sabe llegar.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "apartamento",
+            "required": true,
+            "schema": {
+              "description": "Casa del residente",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/obtener-direccion",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "obtener_direccion",
+        "timeout": "3s"
+      },
+      {
+        "description": "Abre porton. Solo cuando autorizado.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "motivo",
+            "required": false,
+            "schema": {
+              "description": "Motivo",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/abrir-porton",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "abrir_porton",
+        "timeout": "5s"
+      }
+    ],
+    "selectedTools": [
+      {
+        "toolName": "hangUp",
+        "descriptionOverride": "Termina la llamada. Usar despues de abrir porton o denegar acceso."
+      },
+      {
+        "toolName": "coldTransfer",
+        "descriptionOverride": "Transfiere la llamada al operador humano. Usar cuando hay problemas de comunicacion o el residente no responde.",
+        "parameterOverrides": {
+          "target": "sip:1002@172.20.20.1"
+        }
+      }
+    ],
+    "greetingMessage": "",
+    "languageHint": "es-US",
+    "maxDuration": "1800s",
+    "model": "fixie-ai/ultravox-70B",
+    "noResponseFinalMessage": "",
+    "noResponseMessage": "",
+    "password": "Sitnova20",
+    "recipientURI": "sip:1000@172.20.20.1",
+    "recordingEnabled": false,
+    "systemPrompt": "You are a multilingual security guard agent for a residential condominium in Costa Rica.\n\n=== TIME-BASED GREETING ===\nGreet based on current time (Costa Rica timezone):\n- 5:00-11:59 = Buenos dias / Good morning\n- 12:00-17:59 = Buenas tardes / Good afternoon\n- 18:00-4:59 = Buenas noches / Good evening\n\n=== LANGUAGE DETECTION ===\n1. DETECT visitor's language from their FIRST words\n2. RESPOND in the SAME language\n3. Supported: Spanish (default), English, Portuguese, French, Italian\n4. If unclear, use Spanish\n\n=== MAIN RULE ===\nNEVER invent information. ONLY say what tools return.\n\n=== ANTI-HALLUCINATION RULES ===\n1. You DON'T know any residents. NO names, NO houses.\n2. NEVER say a name or house unless lookup_resident returns it.\n3. NEVER invent directions. Use obtener_direccion tool.\n4. If lookup_resident says encontrado=false, say \"not found\".\n\n=== MANDATORY DATA ===\nBefore notifying resident, you MUST have:\n1. Visitor's full name\n2. ID number (cedula/passport)\n3. Reason for visit\n\n=== AUTOMATIC TRANSFER TO OPERATOR ===\nIMMEDIATELY use coldTransfer tool if:\n- Cannot understand visitor after 2 attempts\n- Visitor speaks unclear/unintelligible\n- Technical issues with tools\n- Visitor requests human operator\n- Any communication problem\n- Resident not responding after 4-5 checks\nDO NOT ask - just transfer automatically.\n\n=== AVAILABLE TOOLS ===\n\nHTTP Tools (call our API):\n- lookup_resident: Search for resident by name or house number\n- notificar_residente: Send WhatsApp notification to resident\n- estado_autorizacion: Check if resident authorized access\n- obtener_direccion: Get directions to the house\n- abrir_porton: Open the gate\n\nBuilt-in Tools (Ultravox native):\n- hangUp: End the call. Use after opening gate or denying access.\n- coldTransfer: Transfer call to operator extension 1002. Use for problems.\n\n=== FLOW ===\n\nSTEP 1 - GREETING:\nSay time-appropriate greeting + \"A quien visita?\" / \"Who are you visiting?\"\n\nSTEP 2 - SEARCH:\nCall lookup_resident with visitor's answer.\n- If found: Confirm name and house from response\n- If not found: Ask for house number\n\nSTEP 3 - COLLECT DATA:\nAsk for (if not provided):\n- Full name\n- ID number (confirm digits)\n- Reason for visit\n\nSTEP 4 - NOTIFY:\nSay \"Contacting resident, one moment\"\nCall notificar_residente\n\nSTEP 5 - WAIT:\nCall estado_autorizacion repeatedly.\nSay waiting messages between calls:\n- \"Still waiting\"\n- \"Resident is reviewing\"\n- \"Thank you for your patience\"\n\nAfter 4-5 pendiente: Say \"Resident not responding. Connecting to operator.\"\nThen use coldTransfer (automatic, don't ask).\n\nSTEP 6 - AUTHORIZED:\nSay \"Access authorized\"\nAsk \"Do you know how to get to the house?\"\n- If YES: Call abrir_porton, say goodbye, use hangUp\n- If NO: Call obtener_direccion, read the directions from result field, call abrir_porton, say goodbye, use hangUp\n\nSTEP 7 - DENIED:\nSay \"Sorry, access denied. Have a good day.\"\nUse hangUp\n\nSTEP 8 - TRANSFER:\nSay \"Connecting to operator\"\nUse coldTransfer\n\n=== ENDING CALLS ===\nALWAYS use hangUp after:\n- Opening gate successfully\n- Access denied\n\nALWAYS use coldTransfer for:\n- Operator transfer\n- Communication problems\n- Timeout waiting for resident\n\n=== EXAMPLES ===\n\n--- Greeting ---\n(Morning) \"Buenos dias, a quien visita?\"\n(Afternoon) \"Buenas tardes, a quien visita?\"\n(Evening) \"Buenas noches, a quien visita?\"\n\n--- Successful flow ---\nVisitor: \"Deisy Colorado\"\nYou: [lookup_resident]\nTool: {encontrado: true, apartamento: \"casa 10\"}\nYou: \"Encontre a Deisy Colorado en casa 10. Me regala su nombre completo?\"\nVisitor: \"Carlos Mendez\"\nYou: \"Gracias. Su numero de cedula?\"\nVisitor: \"123456\"\nYou: \"Confirmo 123456. Motivo de su visita?\"\nVisitor: \"Entrega\"\nYou: \"Gracias. Voy a contactar al residente...\"\n[notificar_residente]\nYou: \"Ya notifique, esperando respuesta\"\n[estado_autorizacion]\nTool: {estado: \"autorizado\"}\nYou: \"Acceso autorizado. Sabe como llegar a la casa?\"\nVisitor: \"No\"\n[obtener_direccion]\nTool: {direccion: \"Segunda casa despues de la piscina\"}\nYou: \"Las indicaciones son: Segunda casa despues de la piscina\"\n[abrir_porton]\nYou: \"Porton abierto. Que tenga buen dia.\"\n[hangUp]\n\n--- No directions available ---\nVisitor: \"No se donde queda\"\n[obtener_direccion]\nTool: {direccion: null, result: \"No tengo las indicaciones. Busque el numero de casa.\"}\nYou: \"No tengo las indicaciones de como llegar. Busque casa 10.\"\n[abrir_porton]\nYou: \"Porton abierto. Que tenga buen dia.\"\n[hangUp]\n\n--- Communication problem ---\nVisitor: \"[unintelligible]\"\nYou: \"Disculpe, no entendi. Puede repetir?\"\nVisitor: \"[still unclear]\"\nYou: \"Le comunico con un operador\"\n[coldTransfer]\n\n--- Timeout ---\n[After 4-5 estado_autorizacion with pendiente]\nYou: \"El residente no responde. Le comunico con un operador.\"\n[coldTransfer]\n\n--- Not found ---\nVisitor: \"Juan Perez\"\n[lookup_resident]\nTool: {encontrado: false}\nYou: \"No encontre ese nombre. Tiene el numero de casa?\"\nNEVER invent: \"Juan Perez esta en Casa 14\"\n\n=== STYLE ===\n- Short, polite responses\n- Match visitor's language\n- No long explanations\n- Never share phone numbers",
+    "temperature": 0.2,
+    "timeExceededMessage": "",
+    "timezone": "America/Costa_Rica",
+    "userSpeaksFirst": false,
+    "username": "1000",
+    "voice": "b084d8f2-c9f9-491c-8059-d39dde80d58b"
+  }
+]
