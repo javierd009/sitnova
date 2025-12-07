@@ -130,10 +130,7 @@ async def list_condominiums(
         if not supabase:
             raise HTTPException(status_code=503, detail="Database not available")
 
-        query = supabase.table("condominiums").select(
-            "id, name, slug, address, city, phone, email, is_active, "
-            "subscription_plan, pbx_extension, created_at"
-        )
+        query = supabase.table("condominiums").select("*")
 
         if is_active is not None:
             query = query.eq("is_active", is_active)
