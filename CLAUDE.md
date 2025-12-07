@@ -262,6 +262,30 @@ test('should calculate total with tax', () => {
 - Use pagination for large datasets
 - Cache repeated queries
 
+### Database Migrations (CRÍTICO)
+**SIEMPRE antes de crear una migración:**
+
+1. **Obtener schema de producción** - Ejecutar `scripts/get_schema.sql` en Supabase SQL Editor
+2. **Analizar columnas existentes** - No asumir que el schema local es igual al de producción
+3. **Usar IF NOT EXISTS** - Para columnas, índices, constraints
+4. **Hacer JOINs por columnas que existen** - Verificar antes de usar foreign keys
+5. **Incluir verificación al final** - Confirmar que la migración se aplicó correctamente
+
+```bash
+# Antes de migrar, pedir al usuario que ejecute:
+scripts/get_schema.sql
+
+# El usuario te dará el output con:
+# - Tablas existentes
+# - Columnas por tabla
+# - Vistas, índices, constraints
+```
+
+**Errores comunes a evitar:**
+- ❌ Asumir que `vehicle_id` existe → usar `license_plate` para JOIN
+- ❌ Asumir que `timestamp` existe → puede ser `created_at`
+- ❌ No verificar schema antes de migrar
+
 ## 🔄 Git Workflow & Repository Rules
 
 ### Branch Strategy
