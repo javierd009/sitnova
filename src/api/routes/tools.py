@@ -1518,23 +1518,41 @@ async def obtener_direccion(
             headers=ULTRAVOX_HEADERS
         )
 
-    # Normalizar apartamento
-    apt_clean = apt.lower().replace("casa", "").replace("apartamento", "").replace("apt", "").strip()
+    # Normalizar apartamento - extraer solo el número
+    apt_lower = apt.lower().strip()
+    apt_number = ''.join(filter(str.isdigit, apt_lower))
 
-    logger.info(f"📍 Buscando direccion para: {apt} (normalizado: {apt_clean})")
+    logger.info(f"📍 Buscando direccion para: {apt} (numero: {apt_number})")
 
     try:
         supabase = get_supabase()
         if supabase:
-            # Buscar por apartamento exacto o parcial
-            result = supabase.table("residents").select(
+            # Obtener todos los residentes activos
+            all_residents = supabase.table("residents").select(
                 "apartment, address, address_instructions, full_name"
-            ).or_(
-                f"apartment.ilike.%{apt_clean}%,apartment.ilike.%{apt}%"
-            ).limit(1).execute()
+            ).eq("is_active", True).execute()
 
-            if result.data and len(result.data) > 0:
-                resident = result.data[0]
+            resident = None
+
+            if all_residents.data:
+                # Buscar match exacto por número de apartamento
+                for r in all_residents.data:
+                    r_apt = r.get("apartment", "").lower()
+                    r_number = ''.join(filter(str.isdigit, r_apt))
+
+                    # Match exacto por número
+                    if apt_number and r_number == apt_number:
+                        resident = r
+                        logger.info(f"✅ Match exacto por número: {r_apt}")
+                        break
+
+                    # Match exacto por texto completo
+                    if apt_lower in r_apt or r_apt in apt_lower:
+                        resident = r
+                        logger.info(f"✅ Match por texto: {r_apt}")
+                        break
+
+            if resident:
                 direccion = resident.get("address_instructions") or resident.get("address")
 
                 if direccion:
@@ -1560,8 +1578,19 @@ async def obtener_direccion(
                         },
                         headers=ULTRAVOX_HEADERS
                     )
+            else:
+                # No se encontró el residente
+                logger.warning(f"⚠️ No se encontro residente con apartamento: {apt}")
+                return JSONResponse(
+                    content={
+                        "encontrado": False,
+                        "direccion": None,
+                        "result": f"No encontre informacion de direccion para {apt}. Busque el numero de casa.",
+                    },
+                    headers=ULTRAVOX_HEADERS
+                )
 
-        # No se encontro
+        # No se encontro (supabase no disponible)
         logger.warning(f"⚠️ No se encontro residente con apartamento: {apt}")
         return JSONResponse(
             content={
