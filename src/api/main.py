@@ -10,7 +10,7 @@ import time
 from loguru import logger
 
 from src.config.settings import settings
-from src.api.routes import webhooks, vision, admin, tools, voice, condominiums
+from src.api.routes import webhooks, vision, admin, tools, voice, condominiums, vehicles
 
 
 # ============================================
@@ -172,6 +172,7 @@ app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 app.include_router(voice.router, prefix="/voice", tags=["Voice"])
 app.include_router(tools.router, prefix="/tools", tags=["Tools"])
 app.include_router(condominiums.router, prefix="/condominiums", tags=["Condominiums"])
+app.include_router(vehicles.router, prefix="/vehicles", tags=["Vehicle Tracking"])
 
 
 # ============================================

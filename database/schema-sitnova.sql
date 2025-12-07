@@ -371,8 +371,9 @@ CREATE TABLE IF NOT EXISTS access_logs (
     -- Timestamp
     timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    -- Tipo de entrada
+    -- Tipo de entrada y dirección
     entry_type VARCHAR(50) NOT NULL, -- 'vehicle', 'intercom', 'pedestrian', 'emergency'
+    direction VARCHAR(10) NOT NULL DEFAULT 'entry', -- 'entry' = entrada, 'exit' = salida
     access_point VARCHAR(100), -- "Puerta Principal", "Entrada Trasera"
 
     -- Residente relacionado
@@ -597,6 +598,7 @@ CREATE INDEX idx_access_logs_visitor ON access_logs(visitor_id);
 CREATE INDEX idx_access_logs_plate ON access_logs(license_plate);
 CREATE INDEX idx_access_logs_decision ON access_logs(access_decision);
 CREATE INDEX idx_access_logs_entry_type ON access_logs(entry_type);
+CREATE INDEX idx_access_logs_direction ON access_logs(direction);
 CREATE INDEX idx_access_logs_call_id ON access_logs(call_id);
 CREATE INDEX idx_access_logs_search ON access_logs USING gin(to_tsvector('spanish', search_text));
 
@@ -866,6 +868,91 @@ WHERE visitor_id IS NOT NULL
 AND timestamp > CURRENT_TIMESTAMP - INTERVAL '30 days'
 GROUP BY condominium_id, visitor_id, visitor_full_name, visitor_id_number
 ORDER BY visit_count DESC;
+
+-- View: Vehicle entry/exit tracking dashboard
+-- Vista para dashboard de entrada/salida de vehículos por condominio
+CREATE OR REPLACE VIEW vehicle_tracking AS
+SELECT
+    al.id,
+    al.condominium_id,
+    c.name as condominium_name,
+    al.timestamp,
+    al.direction,
+    al.license_plate,
+    al.plate_confidence,
+    al.plate_image_url,
+    al.vehicle_photo_url,
+    v.brand as vehicle_brand,
+    v.model as vehicle_model,
+    v.color as vehicle_color,
+    v.vehicle_type,
+    COALESCE(r.full_name, al.visitor_full_name) as owner_or_visitor,
+    r.apartment,
+    al.access_decision,
+    al.decision_reason,
+    CASE
+        WHEN v.id IS NOT NULL THEN 'registered'
+        WHEN al.visitor_id IS NOT NULL THEN 'visitor'
+        ELSE 'unknown'
+    END as vehicle_status
+FROM access_logs al
+LEFT JOIN condominiums c ON al.condominium_id = c.id
+LEFT JOIN vehicles v ON al.vehicle_id = v.id
+LEFT JOIN residents r ON COALESCE(v.resident_id, al.resident_id) = r.id
+WHERE al.entry_type = 'vehicle'
+ORDER BY al.timestamp DESC;
+
+-- View: Vehicle presence (who is currently inside)
+-- Vista para saber qué vehículos están actualmente dentro del condominio
+CREATE OR REPLACE VIEW vehicles_inside AS
+WITH latest_movement AS (
+    SELECT
+        license_plate,
+        condominium_id,
+        direction,
+        timestamp,
+        ROW_NUMBER() OVER (
+            PARTITION BY license_plate, condominium_id
+            ORDER BY timestamp DESC
+        ) as rn
+    FROM access_logs
+    WHERE entry_type = 'vehicle'
+    AND license_plate IS NOT NULL
+)
+SELECT
+    lm.license_plate,
+    lm.condominium_id,
+    c.name as condominium_name,
+    lm.timestamp as entry_time,
+    v.brand,
+    v.model,
+    v.color,
+    r.full_name as owner_name,
+    r.apartment,
+    EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - lm.timestamp))/3600 as hours_inside
+FROM latest_movement lm
+LEFT JOIN condominiums c ON lm.condominium_id = c.id
+LEFT JOIN vehicles v ON lm.license_plate = v.license_plate AND v.condominium_id = lm.condominium_id
+LEFT JOIN residents r ON v.resident_id = r.id
+WHERE lm.rn = 1
+AND lm.direction = 'entry'
+ORDER BY lm.timestamp DESC;
+
+-- View: Daily entry/exit summary by condominium
+-- Vista resumen diario de entradas/salidas por condominio
+CREATE OR REPLACE VIEW daily_vehicle_summary AS
+SELECT
+    condominium_id,
+    DATE(timestamp) as date,
+    COUNT(CASE WHEN direction = 'entry' THEN 1 END) as total_entries,
+    COUNT(CASE WHEN direction = 'exit' THEN 1 END) as total_exits,
+    COUNT(DISTINCT license_plate) as unique_vehicles,
+    COUNT(CASE WHEN direction = 'entry' AND vehicle_id IS NOT NULL THEN 1 END) as registered_entries,
+    COUNT(CASE WHEN direction = 'entry' AND vehicle_id IS NULL THEN 1 END) as visitor_entries
+FROM access_logs
+WHERE entry_type = 'vehicle'
+GROUP BY condominium_id, DATE(timestamp)
+ORDER BY date DESC;
 
 -- =====================================================
 -- COMMENTS

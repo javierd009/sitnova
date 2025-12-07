@@ -48,6 +48,7 @@ class PorteroState(BaseModel):
     condominium_id: str = Field(..., description="UUID del condominio (multi-tenant)")
     camera_id: str = Field(default="cam_entrada", description="ID de la cámara activa")
     door_id: int = Field(default=1, description="ID de la puerta a controlar")
+    direction: str = Field(default="entry", description="Dirección: 'entry' (entrada) o 'exit' (salida)")
 
     # ============================================
     # CONVERSACIÓN

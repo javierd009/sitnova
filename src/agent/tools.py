@@ -261,6 +261,7 @@ def log_access_event(
     condominium_id: str,
     entry_type: str,
     access_decision: str,
+    direction: str = "entry",
     plate: Optional[str] = None,
     cedula: Optional[str] = None,
     visitor_name: Optional[str] = None,
@@ -279,6 +280,7 @@ def log_access_event(
         condominium_id: UUID del condominio
         entry_type: Tipo de entrada ("vehicle", "intercom", "pedestrian", "emergency")
         access_decision: Decisión ("authorized", "denied", "pending", "cancelled")
+        direction: Dirección del movimiento ("entry" = entrada, "exit" = salida)
         plate: Placa del vehículo (opcional)
         cedula: Número de cédula del visitante (opcional)
         visitor_name: Nombre del visitante (opcional)
@@ -317,6 +319,7 @@ def log_access_event(
         log_data = {
             "condominium_id": condominium_id,
             "entry_type": entry_type,
+            "direction": direction,  # 'entry' o 'exit'
             "access_decision": access_decision,
             "license_plate": plate,
             "gate_opened": gate_opened,

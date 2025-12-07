@@ -283,6 +283,7 @@ def log_access_node(state: PorteroState) -> PorteroState:
     log_result = log_access_event.invoke({
         "condominium_id": state.condominium_id,
         "entry_type": entry_type,
+        "direction": state.direction,  # 'entry' o 'exit'
         "access_decision": access_decision,
         "plate": state.plate,
         "cedula": state.cedula,
