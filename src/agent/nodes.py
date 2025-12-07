@@ -231,11 +231,11 @@ def open_gate_node(state: PorteroState) -> PorteroState:
         "reason": str(state.authorization_type) if state.authorization_type else "manual"
     })
     
-    gate_opened = open_result.get("success", False)
+    state.gate_opened = open_result.get("success", False)
     state.access_granted = True
     state.current_step = VisitStep.ACCESO_OTORGADO
-    
-    if gate_opened:
+
+    if state.gate_opened:
         logger.success(f"✅ Portón abierto exitosamente")
         state.messages.append(AIMessage(
             content="Portón abierto. ¡Que tenga buen día!"
@@ -288,15 +288,16 @@ def log_access_node(state: PorteroState) -> PorteroState:
         "cedula": state.cedula,
         "visitor_name": state.visitor_name,
         "resident_id": state.resident_id,
-        "gate_opened": state.gate_opened if hasattr(state, 'gate_opened') else state.access_granted,
+        "gate_opened": state.gate_opened,
         "decision_reason": state.denial_reason if not state.access_granted else f"Autorizado por: {state.authorization_type}",
         "decision_method": decision_method,
         "cedula_photo_url": state.cedula_image_url,
         "vehicle_photo_url": state.plate_image_url,
     })
     
+    state.access_logged = True
     logger.info(f"✅ Evento registrado: {log_result.get('log_id')}")
-    
+
     return state
 
 

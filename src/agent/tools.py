@@ -48,7 +48,7 @@ def check_authorized_vehicle(condominium_id: str, plate: str) -> Dict[str, Any]:
 
         # Query real a Supabase
         result = supabase.table("vehicles").select(
-            "*, residents!inner(id, full_name, phone_primary, unit_number)"
+            "*, residents!inner(id, full_name, phone, apartment)"
         ).eq(
             "condominium_id", condominium_id
         ).eq(
@@ -67,7 +67,7 @@ def check_authorized_vehicle(condominium_id: str, plate: str) -> Dict[str, Any]:
                 "authorized": True,
                 "resident_id": resident["id"],
                 "resident_name": resident["full_name"],
-                "apartment": resident["unit_number"],
+                "apartment": resident["apartment"],
                 "vehicle_type": vehicle.get("vehicle_type"),
                 "notes": vehicle.get("notes")
             }
@@ -123,11 +123,11 @@ def lookup_resident(condominium_id: str, query: str) -> Dict[str, Any]:
 
         # Intentar buscar por número de unidad exacto
         result_unit = supabase.table("residents").select(
-            "id, full_name, unit_number, phone_primary"
+            "id, full_name, apartment, phone"
         ).eq(
             "condominium_id", condominium_id
         ).eq(
-            "unit_number", query
+            "apartment", query
         ).execute()
 
         if result_unit.data:
@@ -136,14 +136,14 @@ def lookup_resident(condominium_id: str, query: str) -> Dict[str, Any]:
                 "residents": [{
                     "id": r["id"],
                     "name": r["full_name"],
-                    "apartment": r["unit_number"],
-                    "phone": r["phone_primary"]
+                    "apartment": r["apartment"],
+                    "phone": r["phone"]
                 } for r in result_unit.data]
             }
 
         # Si no, buscar por nombre (ilike)
         result_name = supabase.table("residents").select(
-            "id, full_name, unit_number, phone_primary"
+            "id, full_name, apartment, phone"
         ).eq(
             "condominium_id", condominium_id
         ).ilike(
@@ -156,8 +156,8 @@ def lookup_resident(condominium_id: str, query: str) -> Dict[str, Any]:
                 "residents": [{
                     "id": r["id"],
                     "name": r["full_name"],
-                    "apartment": r["unit_number"],
-                    "phone": r["phone_primary"]
+                    "apartment": r["apartment"],
+                    "phone": r["phone"]
                 } for r in result_name.data]
             }
 
@@ -198,11 +198,11 @@ def check_pre_authorized_visitor(condominium_id: str, cedula: str) -> Dict[str, 
 
         # Usar relación explícita para evitar ambigüedad (resident_id vs created_by)
         result = supabase.table("pre_authorized_visitors").select(
-            "*, residents!pre_authorized_visitors_resident_id_fkey(id, full_name, phone_primary, unit_number)"
+            "*, residents!pre_authorized_visitors_resident_id_fkey(id, full_name, phone, apartment)"
         ).eq(
             "condominium_id", condominium_id
         ).eq(
-            "id_number", cedula
+            "cedula", cedula
         ).execute()
 
         if result.data and len(result.data) > 0:
@@ -291,21 +291,14 @@ def log_access_event(
                 "timestamp": datetime.now().isoformat()
             }
 
+        # Campos mínimos que existen en el schema de producción
         log_data = {
             "condominium_id": condominium_id,
             "entry_type": entry_type,
             "access_decision": access_decision,
             "license_plate": plate,
-            "visitor_id_number": cedula,
-            "visitor_full_name": visitor_name,
-            "resident_id": resident_id,
             "gate_opened": gate_opened,
-            "decision_reason": decision_reason,
-            "decision_method": decision_method,
-            "visitor_id_photo_url": cedula_photo_url,
-            "vehicle_photo_url": vehicle_photo_url,
-            "access_point": access_point,
-            "timestamp": datetime.now().isoformat(),
+            # Nota: muchas columnas del schema original no existen en producción
         }
 
         # Remover None values para evitar errores
@@ -355,9 +348,9 @@ def capture_plate_ocr(camera_id: str = "cam_entrada") -> Dict[str, Any]:
         # Obtener URL de la cámara según camera_id
         camera_url = None
         if camera_id == "cam_entrada":
-            camera_url = settings.CAMERA_ENTRADA_URL
+            camera_url = settings.camera_entrada_url
         elif camera_id == "cam_cedula":
-            camera_url = settings.CAMERA_CEDULA_URL
+            camera_url = settings.camera_cedula_url
 
         # Si no hay cámara configurada, usar mock
         if not camera_url or camera_url == "rtsp://localhost:554/mock":
@@ -382,7 +375,7 @@ def capture_plate_ocr(camera_id: str = "cam_entrada") -> Dict[str, Any]:
                 raise Exception("Failed to capture frame")
 
             # Detectar placa
-            detector = PlateDetector(use_gpu=settings.USE_GPU)
+            detector = PlateDetector(use_gpu=(settings.yolo_device == "cuda"))
             result = detector.detect_plate(frame)
 
             if result["detected"]:
@@ -430,7 +423,7 @@ def capture_cedula_ocr(camera_id: str = "cam_cedula") -> Dict[str, Any]:
         settings = get_settings()
 
         # Obtener URL de la cámara
-        camera_url = settings.CAMERA_CEDULA_URL
+        camera_url = settings.camera_cedula_url
 
         # Si no hay cámara configurada, usar mock
         if not camera_url or camera_url == "rtsp://localhost:554/mock":
@@ -457,7 +450,7 @@ def capture_cedula_ocr(camera_id: str = "cam_cedula") -> Dict[str, Any]:
                 raise Exception("Failed to capture frame")
 
             # Leer cédula
-            reader = CedulaReader(use_gpu=settings.USE_GPU)
+            reader = CedulaReader(use_gpu=(settings.yolo_device == "cuda"))
             result = reader.read_cedula(frame)
 
             if result["detected"]:
@@ -516,14 +509,14 @@ def open_gate(condominium_id: str, door_id: int = 1, reason: str = "authorized")
         settings = get_settings()
 
         # Determinar si usar mock o cliente real
-        use_mock = not settings.HIKVISION_HOST or settings.HIKVISION_HOST == "localhost"
+        use_mock = not settings.hikvision_host or settings.hikvision_host == "localhost"
 
         # Crear cliente
         client = create_hikvision_client(
-            host=settings.HIKVISION_HOST,
-            username=settings.HIKVISION_USERNAME,
-            password=settings.HIKVISION_PASSWORD,
-            port=settings.HIKVISION_PORT,
+            host=settings.hikvision_host,
+            username=settings.hikvision_user,
+            password=settings.hikvision_password,
+            port=settings.hikvision_port,
             use_mock=use_mock
         )
 
@@ -605,13 +598,13 @@ def notify_resident_whatsapp(
             )
 
         # Determinar si usar mock
-        use_mock = not settings.EVOLUTION_API_URL or settings.EVOLUTION_API_URL == "http://localhost:8080"
+        use_mock = not settings.evolution_api_url or settings.evolution_api_url == "http://localhost:8080"
 
         # Crear cliente
         client = create_evolution_client(
-            base_url=settings.EVOLUTION_API_URL,
-            api_key=settings.EVOLUTION_API_KEY,
-            instance_name=settings.EVOLUTION_INSTANCE,
+            base_url=settings.evolution_api_url,
+            api_key=settings.evolution_api_key,
+            instance_name=settings.evolution_instance_name,
             use_mock=use_mock
         )
 

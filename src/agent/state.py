@@ -103,11 +103,14 @@ class PorteroState(BaseModel):
     # RESULTADO
     # ============================================
     access_granted: bool = Field(default=False, description="¿Acceso otorgado?")
+    gate_opened: bool = Field(default=False, description="¿Portón abierto físicamente?")
+    access_logged: bool = Field(default=False, description="¿Evento registrado en DB?")
     authorization_type: Optional[AuthorizationType] = Field(
         default=None,
         description="Tipo de autorización usada"
     )
     denial_reason: Optional[str] = Field(default=None, description="Razón de denegación")
+    notification_sent: bool = Field(default=False, description="¿Notificación enviada al residente?")
 
     # ============================================
     # TIMESTAMPS

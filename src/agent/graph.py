@@ -78,22 +78,6 @@ def route_after_resident_response(state: PorteroState) -> Literal["open_gate", "
     return "deny_access"
 
 
-def should_log_access(state: PorteroState) -> Literal["log_access", END]:
-    """
-    Decide si debe registrar el acceso antes de terminar.
-
-    Returns:
-        "log_access" si aún no se ha registrado
-        END si ya se registró
-    """
-    if not state.access_logged:
-        logger.info("→ Routing: Registrar acceso → log_access")
-        return "log_access"
-
-    logger.info("→ Routing: Ya registrado → END")
-    return END
-
-
 # ============================================
 # GRAPH CREATION
 # ============================================
