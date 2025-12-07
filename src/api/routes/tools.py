@@ -32,6 +32,7 @@ from src.database.connection import get_supabase
 from src.config.settings import settings
 from src.services.messaging.evolution_client import create_evolution_client, EvolutionConfig
 from src.api.routes.auth_state import set_pending_authorization, get_authorization_by_apartment
+from src.api.routes.condo_config import get_condo_config, CondoConfig
 
 
 def normalize_text(text: str) -> str:
@@ -504,6 +505,7 @@ async def notificar_residente(
     cedula: Optional[str] = Query(None),
     placa: Optional[str] = Query(None),
     motivo_visita: Optional[str] = Query(None),
+    condominium_id: Optional[str] = Query(None, description="ID del condominio"),
 ):
     """
     Envia notificacion al residente para autorizar visita.
@@ -525,6 +527,11 @@ async def notificar_residente(
     visitor_cedula = body.get("cedula") or cedula
     visitor_placa = body.get("placa") or placa
     visitor_motivo = body.get("motivo_visita") or motivo_visita
+    condo_id = body.get("condominium_id") or condominium_id or "default-condo-id"
+
+    # Obtener configuracion del condominio (multi-tenant)
+    condo_config = await get_condo_config(condominium_id=condo_id)
+    logger.info(f"📌 Usando config de condominio: {condo_config.name} ({condo_config.condominium_id})")
 
     logger.info(f"Notificando residente: apt={apt}, visitante={visitante}")
     if visitor_cedula:
@@ -628,12 +635,12 @@ async def notificar_residente(
         # Enviar por WhatsApp si está habilitado
         if notify_whatsapp and whatsapp_number:
             try:
-                # Crear cliente Evolution
+                # Crear cliente Evolution usando config del condominio (multi-tenant)
                 evolution = create_evolution_client(
-                    base_url=settings.evolution_api_url,
-                    api_key=settings.evolution_api_key,
-                    instance_name=settings.evolution_instance_name,
-                    use_mock=(not settings.evolution_api_key)
+                    base_url=condo_config.evolution_api_url,
+                    api_key=condo_config.evolution_api_key,
+                    instance_name=condo_config.evolution_instance_name,
+                    use_mock=(not condo_config.evolution_api_key)
                 )
 
                 # Mensaje de notificación completo con TODOS los datos del visitante
@@ -1395,6 +1402,7 @@ async def transferir_operador(
     motivo: Optional[str] = Query(None, description="Motivo de la transferencia"),
     nombre_visitante: Optional[str] = Query(None, description="Nombre del visitante"),
     apartamento: Optional[str] = Query(None, description="Apartamento destino"),
+    condominium_id: Optional[str] = Query(None, description="ID del condominio"),
 ):
     """
     Transfiere la situacion a un operador humano.
@@ -1412,11 +1420,17 @@ async def transferir_operador(
     reason = body.get("motivo") or motivo or "Asistencia requerida"
     visitor = body.get("nombre_visitante") or nombre_visitante or "No identificado"
     apt = body.get("apartamento") or apartamento or "No especificado"
+    condo_id = body.get("condominium_id") or condominium_id or "default-condo-id"
+
+    # Obtener configuracion del condominio (multi-tenant)
+    condo_config = await get_condo_config(condominium_id=condo_id)
+    logger.info(f"📌 Config de condominio para operador: {condo_config.name}")
 
     logger.info(f"🚨 TRANSFERENCIA A OPERADOR: motivo={reason}, visitante={visitor}, apt={apt}")
 
-    # Verificar si hay operador configurado
-    if not settings.operator_phone:
+    # Verificar si hay operador configurado (primero del condominio, luego global)
+    operator_phone = condo_config.operator_phone or settings.operator_phone
+    if not operator_phone:
         logger.warning("⚠️ No hay operador configurado (OPERATOR_PHONE)")
         return JSONResponse(
             content={
@@ -1428,12 +1442,12 @@ async def transferir_operador(
         )
 
     try:
-        # Crear cliente Evolution para notificar al operador
+        # Crear cliente Evolution usando config del condominio (multi-tenant)
         evolution = create_evolution_client(
-            base_url=settings.evolution_api_url,
-            api_key=settings.evolution_api_key,
-            instance_name=settings.evolution_instance_name,
-            use_mock=(not settings.evolution_api_key)
+            base_url=condo_config.evolution_api_url,
+            api_key=condo_config.evolution_api_key,
+            instance_name=condo_config.evolution_instance_name,
+            use_mock=(not condo_config.evolution_api_key)
         )
 
         # Mensaje para el operador
@@ -1442,16 +1456,17 @@ async def transferir_operador(
             f"El sistema requiere atencion humana:\n\n"
             f"👤 *Visitante:* {visitor}\n"
             f"🏠 *Destino:* {apt}\n"
-            f"📝 *Motivo:* {reason}\n\n"
+            f"📝 *Motivo:* {reason}\n"
+            f"🏢 *Condominio:* {condo_config.name}\n\n"
             f"Por favor atienda la porteria o contacte al visitante."
         )
 
-        result_wa = evolution.send_text(settings.operator_phone, mensaje_operador)
+        result_wa = evolution.send_text(operator_phone, mensaje_operador)
 
         if result_wa.get("success"):
-            logger.success(f"✅ Operador notificado: {settings.operator_phone}")
+            logger.success(f"✅ Operador notificado: {operator_phone}")
             # Obtener extension del operador para transferencia SIP
-            operator_ext = settings.operator_extension or "1002"
+            operator_ext = condo_config.operator_extension or "1002"
             return JSONResponse(
                 content={
                     "transferido": True,
