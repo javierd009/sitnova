@@ -96,27 +96,16 @@ PHONETIC_CORRECTIONS = {
     "jose": "jose",
     "josé": "jose",
     "jóse": "jose",
-    # Variaciones de iniciales (STT puede transcribir letras de formas diferentes)
-    "dese": "dc",
-    "disi": "dc",
-    "dece": "dc",
-    "dice": "dc",
-    "de ce": "dc",
-    "de se": "dc",
-    "de si": "dc",
-    "dici": "dc",
-    "di ci": "dc",
-    "dce": "dc",
-    "decé": "dc",
-    "desé": "dc",
-    "d.c.": "dc",
-    "d c": "dc",
+    # ============================================
+    # VARIACIONES DE "DEISY" - NOMBRE MUY COMUN
+    # Estas son las formas en que STT puede transcribir "Deisy"
+    # ============================================
+    "deisy": "deisy",
     "desy": "deisy",
     "daisy": "deisy",
     "daysi": "deisy",
     "deisi": "deisy",
     "daisi": "deisy",
-    # Más variaciones de Deisy/Daisy (nombres muy comunes con muchas transcripciones)
     "deysi": "deisy",
     "deysy": "deisy",
     "daysy": "deisy",
@@ -134,12 +123,35 @@ PHONETIC_CORRECTIONS = {
     "deycy": "deisy",
     "deisie": "deisy",
     "daisie": "deisy",
-    # Variaciones DC (iniciales muy usadas en Costa Rica)
-    "dece": "dc",
-    "dise": "dc",
-    "dece colorado": "dc colorado",
+    # CRITICO: Estas son las variaciones que STT genera mas frecuentemente
+    "deci": "deisy",    # <- ESTA FALTABA!
+    "desi": "deisy",    # <- ESTA FALTABA!
+    "dese": "deisy",    # <- CAMBIADO de "dc" a "deisy"
+    "disi": "deisy",    # <- CAMBIADO de "dc" a "deisy"
+    "dece": "deisy",    # <- CAMBIADO de "dc" a "deisy"
+    "dice": "deisy",    # <- CAMBIADO de "dc" a "deisy"
+    "dici": "deisy",    # <- CAMBIADO de "dc" a "deisy"
+    "dessy": "deisy",
+    "dessi": "deisy",
+    "decy": "deisy",
+    "dacy": "deisy",
+    # Combinaciones con apellido Colorado
     "daisy colorado": "deisy colorado",
     "deysi colorado": "deisy colorado",
+    "deci colorado": "deisy colorado",
+    "desi colorado": "deisy colorado",
+    "dese colorado": "deisy colorado",
+    "disi colorado": "deisy colorado",
+    # ============================================
+    # VARIACIONES DE "DC" - SOLO PARA INICIALES EXPLICITAS
+    # Solo usar cuando claramente dicen las letras separadas
+    # ============================================
+    "d.c.": "dc",
+    "d c": "dc",
+    "de ce": "dc",
+    "di ci": "dc",
+    "de si": "dc",
+    "de se": "dc",
 }
 
 # Patrones de variación fonética bidireccional
