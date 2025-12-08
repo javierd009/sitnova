@@ -139,6 +139,63 @@ curl http://localhost:8000/health
 
 ---
 
+## 🌐 Stack de Producción
+
+> **IMPORTANTE**: Este proyecto usa una arquitectura distribuida en producción
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    PRODUCCIÓN SITNOVA                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌──────────────┐     ┌──────────────┐     ┌──────────────┐    │
+│  │   VERCEL     │     │   SUPABASE   │     │ ASTERSIPVOX  │    │
+│  │  (Frontend)  │────▶│  (Database)  │◀────│  (Voice AI)  │    │
+│  │              │     │              │     │              │    │
+│  │ Next.js 14   │     │ PostgreSQL   │     │ Ultravox +   │    │
+│  │ Dashboard    │     │ + Storage    │     │ FreePBX      │    │
+│  │ sitnova.     │     │ + Auth       │     │              │    │
+│  │ integratec-  │     │ + RLS        │     │ devaster.    │    │
+│  │ ia.com       │     │              │     │ integratec-  │    │
+│  │              │     │              │     │ ia.com       │    │
+│  └──────────────┘     └──────────────┘     └──────────────┘    │
+│         │                    ▲                    │             │
+│         │                    │                    │             │
+│         ▼                    │                    ▼             │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │              PORTAINER / DOCKER SWARM                    │  │
+│  │                                                          │  │
+│  │  ┌────────────────┐  ┌────────────────┐  ┌────────────┐ │  │
+│  │  │ FastAPI        │  │ Evolution API  │  │ Redis      │ │  │
+│  │  │ (Backend)      │  │ (WhatsApp)     │  │ (Cache)    │ │  │
+│  │  │ api.sitnova.   │  │                │  │            │ │  │
+│  │  │ integratec-    │  │                │  │            │ │  │
+│  │  │ ia.com         │  │                │  │            │ │  │
+│  │  └────────────────┘  └────────────────┘  └────────────┘ │  │
+│  │                                                          │  │
+│  │  Traefik (Reverse Proxy + SSL)                          │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### URLs de Producción
+| Servicio | URL | Descripción |
+|----------|-----|-------------|
+| **Frontend** | `https://sitnova.integratec-ia.com` | Dashboard Next.js (Vercel) |
+| **Backend API** | `https://api.sitnova.integratec-ia.com` | FastAPI (Docker/Portainer) |
+| **Voice AI** | `https://devaster.integratec-ia.com` | AsterSIPVox (Ultravox bridge) |
+| **Supabase** | `https://lgqeeumflbzzmqysqkiq.supabase.co` | PostgreSQL + Storage |
+
+### Variables de Entorno (Vercel)
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://lgqeeumflbzzmqysqkiq.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+NEXT_PUBLIC_API_URL=https://api.sitnova.integratec-ia.com
+```
+
+---
+
 ## 🚀 Stack Tecnológico
 
 ### Core
@@ -148,9 +205,9 @@ curl http://localhost:8000/health
 - **Pydantic** - Settings + validación
 
 ### IA & Voice
-- **Claude Sonnet 4.5** / **GPT-4** - LLM para decisiones
+- **Gemini 2.0 Flash** - LLM para decisiones (via Google API)
 - **Ultravox** - Voice AI para conversaciones
-- **astersipvox** - Bridge SIP ↔ Ultravox
+- **AsterSIPVox** - Bridge SIP ↔ Ultravox (FreePBX integration)
 
 ### Visión Artificial
 - **YOLOv8** - Detección de vehículos
@@ -158,7 +215,7 @@ curl http://localhost:8000/health
 - **OpenCV** - Conexión RTSP a cámaras
 
 ### Database & Cache
-- **Supabase** - PostgreSQL + Storage + Auth
+- **Supabase** - PostgreSQL + Storage + Auth + RLS
 - **Redis** - State persistence + cache
 
 ### Hardware Integration
@@ -169,6 +226,12 @@ curl http://localhost:8000/health
 ### Notifications
 - **Evolution API** - WhatsApp bidireccional
 - **OneSignal** - Push notifications
+
+### Deployment
+- **Vercel** - Frontend hosting (Next.js)
+- **Portainer** - Docker Swarm management
+- **Traefik** - Reverse proxy + SSL
+- **GitHub Actions** - CI/CD pipelines
 
 ---
 

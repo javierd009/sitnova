@@ -1,10 +1,11 @@
 /**
  * Bitácora Service
  *
- * Service for interacting with the bitácora API endpoints.
+ * Service for interacting with bitácora data via Supabase directly.
+ * This eliminates the dependency on the backend API for read operations.
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+import { createClient } from '@/shared/lib/supabase'
 
 export interface BitacoraEntry {
   id: string
@@ -56,41 +57,150 @@ export interface BitacoraFilters {
 }
 
 export async function fetchBitacora(filters: BitacoraFilters = {}): Promise<BitacoraResponse> {
-  const params = new URLSearchParams()
+  const supabase = createClient()
+  const page = filters.page || 1
+  const pageSize = filters.page_size || 20
+  const offset = (page - 1) * pageSize
 
-  Object.entries(filters).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') {
-      params.append(key, String(value))
-    }
-  })
+  // Build query
+  let query = supabase
+    .from('bitacora_accesos')
+    .select('*', { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(offset, offset + pageSize - 1)
 
-  const response = await fetch(`${API_BASE}/bitacora?${params.toString()}`)
-
-  if (!response.ok) {
-    throw new Error(`Error fetching bitácora: ${response.statusText}`)
+  // Apply filters
+  if (filters.condominium_id) {
+    query = query.eq('condominium_id', filters.condominium_id)
+  }
+  if (filters.access_result) {
+    query = query.eq('access_result', filters.access_result)
+  }
+  if (filters.visitor_type) {
+    query = query.eq('visitor_type', filters.visitor_type)
+  }
+  if (filters.apartment) {
+    query = query.eq('apartment', filters.apartment)
+  }
+  if (filters.date_from) {
+    query = query.gte('created_at', filters.date_from)
+  }
+  if (filters.date_to) {
+    query = query.lte('created_at', filters.date_to)
+  }
+  if (filters.search) {
+    // Search in multiple fields using OR
+    query = query.or(
+      `visitor_name.ilike.%${filters.search}%,visitor_cedula.ilike.%${filters.search}%,vehicle_plate.ilike.%${filters.search}%,resident_name.ilike.%${filters.search}%,apartment.ilike.%${filters.search}%`
+    )
   }
 
-  return response.json()
+  const { data, error, count } = await query
+
+  if (error) {
+    throw new Error(`Error fetching bitácora: ${error.message}`)
+  }
+
+  const total = count || 0
+  return {
+    entries: data || [],
+    total,
+    page,
+    page_size: pageSize,
+    has_more: offset + pageSize < total,
+  }
 }
 
 export async function fetchUltimosAccesos(limit: number = 10): Promise<BitacoraEntry[]> {
-  const response = await fetch(`${API_BASE}/bitacora/ultimos?limit=${limit}`)
+  const supabase = createClient()
 
-  if (!response.ok) {
-    throw new Error(`Error fetching últimos accesos: ${response.statusText}`)
+  const { data, error } = await supabase
+    .from('bitacora_accesos')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) {
+    throw new Error(`Error fetching últimos accesos: ${error.message}`)
   }
 
-  return response.json()
+  return data || []
 }
 
 export async function fetchEstadisticas(days: number = 7): Promise<EstadisticasDiarias[]> {
-  const response = await fetch(`${API_BASE}/bitacora/estadisticas?days=${days}`)
+  const supabase = createClient()
 
-  if (!response.ok) {
-    throw new Error(`Error fetching estadísticas: ${response.statusText}`)
+  // Calculate date range
+  const endDate = new Date()
+  const startDate = new Date()
+  startDate.setDate(startDate.getDate() - days)
+
+  // Use the view for daily statistics
+  const { data, error } = await supabase
+    .from('bitacora_estadisticas_diarias')
+    .select('*')
+    .gte('fecha', startDate.toISOString().split('T')[0])
+    .lte('fecha', endDate.toISOString().split('T')[0])
+    .order('fecha', { ascending: false })
+
+  if (error) {
+    // If view doesn't exist, calculate manually
+    console.warn('Vista bitacora_estadisticas_diarias no disponible, calculando manualmente')
+    return calculateEstadisticasManually(supabase, startDate, endDate)
   }
 
-  return response.json()
+  return data || []
+}
+
+async function calculateEstadisticasManually(
+  supabase: ReturnType<typeof createClient>,
+  startDate: Date,
+  endDate: Date
+): Promise<EstadisticasDiarias[]> {
+  const { data, error } = await supabase
+    .from('bitacora_accesos')
+    .select('*')
+    .gte('created_at', startDate.toISOString())
+    .lte('created_at', endDate.toISOString())
+
+  if (error || !data) {
+    return []
+  }
+
+  // Group by date using object (avoids Map iteration issues)
+  const byDate: Record<string, BitacoraEntry[]> = {}
+  for (const entry of data) {
+    const fecha = new Date(entry.created_at).toISOString().split('T')[0]
+    if (!byDate[fecha]) {
+      byDate[fecha] = []
+    }
+    byDate[fecha].push(entry)
+  }
+
+  // Calculate statistics for each day
+  const stats: EstadisticasDiarias[] = Object.entries(byDate).map(([fecha, entries]) => ({
+    fecha,
+    total_accesos: entries.length,
+    autorizados: entries.filter((e) => e.access_result === 'autorizado').length,
+    denegados: entries.filter((e) => e.access_result === 'denegado').length,
+    pre_autorizados: entries.filter((e) => e.access_result === 'pre_autorizado').length,
+    sin_respuesta: entries.filter((e) => e.access_result === 'timeout').length,
+    transferidos: entries.filter((e) => e.access_result === 'transferido').length,
+    vehiculos: entries.filter((e) => e.visitor_type === 'vehiculo').length,
+    deliveries: entries.filter((e) => e.visitor_type === 'delivery').length,
+    duracion_promedio_llamada: calculateAvgDuration(entries),
+  }))
+
+  return stats.sort((a, b) => b.fecha.localeCompare(a.fecha))
+}
+
+function calculateAvgDuration(entries: BitacoraEntry[]): number | undefined {
+  const durations = entries
+    .map((e) => e.call_duration_seconds)
+    .filter((d): d is number => d !== null && d !== undefined)
+
+  if (durations.length === 0) return undefined
+  return Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
 }
 
 export function getAccessResultColor(result: string): string {
