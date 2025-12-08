@@ -13,6 +13,7 @@ import {
   LogOut,
   Shield,
   Activity,
+  BookOpen,
 } from 'lucide-react'
 
 const navigation = [
@@ -20,6 +21,7 @@ const navigation = [
   { name: 'Residentes', href: '/dashboard/residents', icon: Users },
   { name: 'Vehiculos', href: '/dashboard/vehicles', icon: Car },
   { name: 'Accesos', href: '/dashboard/access-logs', icon: ClipboardList },
+  { name: 'Bitacora', href: '/dashboard/bitacora', icon: BookOpen },
   { name: 'Pre-autorizados', href: '/dashboard/pre-authorized', icon: Shield },
   { name: 'Monitoreo', href: '/dashboard/monitoring', icon: Activity },
   { name: 'Configuracion', href: '/dashboard/settings', icon: Settings },

@@ -35,7 +35,9 @@
       "Bash(xargs ls:*)",
       "Bash(wc:*)",
       "Bash(pip install:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(git reset:*)",
+      "Bash(git stash:*)"
     ],
     "deny": [],
     "ask": []

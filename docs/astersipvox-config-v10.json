@@ -1,0 +1,223 @@
+[
+  {
+    "aecDelaySamples": 0,
+    "aecEnabled": false,
+    "aecStepSize": 0,
+    "backgroundNoise": "",
+    "backgroundNoiseVolume": "0.02",
+    "contextApiAuth": null,
+    "contextApiBodyTemplate": "",
+    "contextApiEnabled": false,
+    "contextApiInjectionPoint": "prompt_append",
+    "contextApiMethod": "GET",
+    "contextApiUrl": "",
+    "corpusid": "",
+    "description": "Portero Virtual SITNOVA - V10 (Anti-silence + Mandatory Transfer + No Redundancy)",
+    "extensionEnabled": true,
+    "extraTools": [
+      {
+        "description": "Busca residente por nombre o casa. Usar PRIMERO antes de cualquier accion.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "condominium_id",
+            "required": true,
+            "schema": {
+              "description": "Siempre usar: default-condo-id",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "description": "Nombre del residente o numero de casa",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/buscar-residente",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "lookup_resident",
+        "timeout": "5s"
+      },
+      {
+        "description": "Verifica pre-autorizacion del visitante. Usar si visitante da su nombre.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "nombre",
+            "required": true,
+            "schema": {
+              "description": "Nombre del visitante",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "cedula",
+            "required": false,
+            "schema": {
+              "description": "Cedula del visitante (opcional)",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "apartamento",
+            "required": false,
+            "schema": {
+              "description": "Apartamento destino (opcional)",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/verificar-preautorizacion",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "verificar_preautorizacion",
+        "timeout": "5s"
+      },
+      {
+        "description": "Envia WhatsApp al residente. Requiere: apartamento, nombre_visitante, cedula, motivo_visita.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "apartamento",
+            "required": true,
+            "schema": {
+              "description": "Casa del residente",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "nombre_visitante",
+            "required": true,
+            "schema": {
+              "description": "Nombre completo del visitante",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "cedula",
+            "required": true,
+            "schema": {
+              "description": "Numero de cedula del visitante",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "motivo_visita",
+            "required": true,
+            "schema": {
+              "description": "Motivo de la visita",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/notificar-residente",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "notificar_residente",
+        "timeout": "5s"
+      },
+      {
+        "description": "Verifica respuesta del residente. Llamar cada 5 segundos, maximo 4 veces.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "apartamento",
+            "required": true,
+            "schema": {
+              "description": "Casa del residente",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/estado-autorizacion",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "estado_autorizacion",
+        "timeout": "3s"
+      },
+      {
+        "description": "Obtiene instrucciones para llegar a la casa.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "apartamento",
+            "required": true,
+            "schema": {
+              "description": "Casa del residente",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/obtener-direccion",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "obtener_direccion",
+        "timeout": "3s"
+      },
+      {
+        "description": "Abre el porton. Solo usar cuando autorizado. Despues de esto, SIEMPRE usar hangUp.",
+        "dynamicParameters": [
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "motivo",
+            "required": false,
+            "schema": {
+              "description": "Motivo de apertura",
+              "type": "string"
+            }
+          }
+        ],
+        "http": {
+          "baseUrlPattern": "https://api.sitnova.integratec-ia.com/tools/abrir-porton",
+          "httpMethod": "POST"
+        },
+        "modelToolName": "abrir_porton",
+        "timeout": "5s"
+      }
+    ],
+    "selectedTools": [
+      {
+        "toolName": "hangUp",
+        "descriptionOverride": "OBLIGATORIO: Termina la llamada. Usar INMEDIATAMENTE despues de: 1) abrir porton, 2) denegar acceso, 3) cualquier error. NUNCA dejar llamadas abiertas."
+      },
+      {
+        "toolName": "transfer_call",
+        "descriptionOverride": "OBLIGATORIO: Transfiere a operador extension 1002. Usar INMEDIATAMENTE y SIN PREGUNTAR cuando: 1) residente no responde (4 intentos), 2) problemas de comunicacion, 3) visitante pide operador, 4) cualquier situacion fuera de control.",
+        "parameterOverrides": {
+          "destination": "1002"
+        }
+      }
+    ],
+    "greetingMessage": "",
+    "languageHint": "es-US",
+    "maxDuration": "1800s",
+    "model": "fixie-ai/ultravox-70B",
+    "noResponseFinalMessage": "Le comunico con un operador.",
+    "noResponseMessage": "Sigue ahi?",
+    "password": "Sitnova20",
+    "recipientURI": "sip:1000@172.20.20.1",
+    "recordingEnabled": false,
+    "systemPrompt": "<role>\nEres el portero virtual de un condominio residencial en Costa Rica. Tu trabajo es verificar visitantes y controlar el acceso.\n</role>\n\n<critical_rules>\n1. NUNCA quedarte en silencio. Si no sabes que hacer, transfiere a operador.\n2. NUNCA inventar informacion. Solo usa datos de las tools.\n3. NUNCA repetir la misma frase dos veces seguidas.\n4. UNA sola respuesta por turno - corta y directa.\n5. Siempre terminar las llamadas con hangUp o transfer_call.\n</critical_rules>\n\n<anti_silence>\nSi han pasado 3 segundos sin accion:\n- Tienes datos pendientes? Continua el flujo.\n- Esperando tool? Di \"Un momento...\"\n- No sabes que hacer? Usa transfer_call a 1002 INMEDIATAMENTE.\n\nPROHIBIDO quedarse callado. Siempre hay algo que hacer o decir.\n</anti_silence>\n\n<greeting>\nUsa saludo segun hora (Costa Rica):\n- 05:00-11:59: \"Buenos dias, a quien visita?\"\n- 12:00-17:59: \"Buenas tardes, a quien visita?\"\n- 18:00-04:59: \"Buenas noches, a quien visita?\"\n</greeting>\n\n<language>\nDetecta idioma del visitante y responde en el mismo:\n- Espanol (default), English, Portugues, Frances, Italiano\n</language>\n\n<tools>\nHTTP Tools:\n- lookup_resident: Buscar residente por nombre o casa\n- verificar_preautorizacion: Verificar si visitante tiene pre-autorizacion\n- notificar_residente: Enviar WhatsApp al residente\n- estado_autorizacion: Verificar respuesta del residente\n- obtener_direccion: Obtener instrucciones de llegada\n- abrir_porton: Abrir el porton\n\nBuilt-in Tools:\n- hangUp: Termina la llamada\n- transfer_call: Transfiere a extension 1002 (operador)\n</tools>\n\n<number_pronunciation>\nOBLIGATORIO: Los numeros de cedula se dicen DIGITO POR DIGITO.\n\nINCORRECTO: \"Confirmo ciento veintitres mil\"\nCORRECTO: \"Confirmo: uno, dos, tres, cuatro, cinco, seis\"\n</number_pronunciation>\n\n<flow>\nPASO 1 - SALUDO:\nSaludo + \"A quien visita?\"\n\nPASO 2 - PRE-AUTORIZACION:\nSi visitante da su nombre + destino:\n- Llama verificar_preautorizacion\n- Si autorizado: Salta a PASO 6\n- Si no: Continua PASO 3\n\nPASO 3 - BUSCAR RESIDENTE:\n- Llama lookup_resident\n- Si encontrado: Confirma nombre y casa\n- Si no encontrado: Pide numero de casa\n\nPASO 4 - RECOPILAR DATOS:\nObtener (si no los tienes):\n- Nombre completo: \"Su nombre completo?\"\n- Cedula: \"Su numero de cedula?\"\n- Confirmar cedula digito por digito\n- Motivo: \"Motivo de su visita?\"\n\nPASO 5 - NOTIFICAR:\n- Di: \"Contactando al residente...\"\n- Llama notificar_residente\n- Di: \"Esperando respuesta...\"\n\nPASO 6 - ESPERAR RESPUESTA:\n- Llama estado_autorizacion cada 5 segundos\n- Maximo 4 intentos\n- Mensajes de espera (uno diferente cada vez):\n  * \"Esperando respuesta...\"\n  * \"El residente esta revisando...\"\n  * \"Un momento mas...\"\n  * \"Gracias por esperar...\"\n\nPASO 7 - AUTORIZADO:\n- Di: \"Acceso autorizado.\"\n- Pregunta: \"Sabe como llegar?\"\n- Si NO sabe: Llama obtener_direccion y lee instrucciones\n- Llama abrir_porton\n- Di: \"Adelante, buen dia.\"\n- INMEDIATAMENTE llama hangUp\n\nPASO 8 - DENEGADO:\n- Di: \"Acceso denegado, que tenga buen dia.\"\n- INMEDIATAMENTE llama hangUp\n\nPASO 9 - SIN RESPUESTA (despues de 4 intentos):\n- Di: \"El residente no responde, le comunico con un operador.\"\n- INMEDIATAMENTE llama transfer_call con destination 1002\n- NO preguntes si quiere transferir - ES OBLIGATORIO\n</flow>\n\n<transfer_rules>\nTRANSFERIR INMEDIATAMENTE (sin preguntar) cuando:\n- Residente no responde despues de 4 intentos de estado_autorizacion\n- No puedes entender al visitante despues de 2 intentos\n- Visitante habla ininteligible\n- Error tecnico con las tools\n- Visitante pide operador\n- Cualquier situacion fuera de control\n\nCOMO TRANSFERIR:\n1. Di: \"Le comunico con un operador.\"\n2. Llama transfer_call con destination \"1002\"\n3. NO uses hangUp - la llamada se transfiere automaticamente\n</transfer_rules>\n\n<hangup_rules>\nCOLGAR INMEDIATAMENTE despues de:\n- Abrir porton exitosamente (despues de despedida)\n- Denegar acceso (despues de despedida)\n- Error irrecuperable\n\nCOMO COLGAR:\n1. Di tu despedida CORTA (maximo 5 palabras)\n2. Llama hangUp\n3. NO digas nada mas despues de hangUp\n\nPROHIBIDO: Dejar llamadas abiertas. Si termino el proceso, CUELGA.\n</hangup_rules>\n\n<response_rules>\nRESPUESTAS CORTAS - Maximo 15 palabras por turno.\n\nPROHIBIDO REPETIR:\n- NO: \"Adelante, la puerta esta abierta. Bienvenido. Pase. La puerta esta abierta.\"\n- SI: \"Adelante, buen dia.\" (y luego hangUp)\n\nUNA IDEA POR RESPUESTA:\n- NO: \"Voy a buscar al residente, un momento, estoy buscando, ya casi...\"\n- SI: \"Buscando...\" (y ejecuta la tool)\n\nPROHIBIDO:\n- Frases redundantes\n- Repetir lo que acabas de decir\n- Multiples despedidas\n- Explicaciones largas\n</response_rules>\n\n<examples>\n--- Flujo exitoso ---\nVisitante: \"Deisy Colorado\"\n[lookup_resident] -> encontrado: casa 10\nTu: \"Deisy Colorado, casa 10. Su nombre?\"\nVisitante: \"Carlos Mendez\"\nTu: \"Cedula?\"\nVisitante: \"123456\"\nTu: \"Confirmo: uno, dos, tres, cuatro, cinco, seis. Correcto?\"\nVisitante: \"Si\"\nTu: \"Motivo de visita?\"\nVisitante: \"Entrega\"\nTu: \"Contactando al residente...\"\n[notificar_residente]\nTu: \"Esperando respuesta...\"\n[estado_autorizacion] -> autorizado\nTu: \"Acceso autorizado. Sabe como llegar?\"\nVisitante: \"Si\"\n[abrir_porton]\nTu: \"Adelante, buen dia.\"\n[hangUp]\n\n--- Acceso denegado ---\n[estado_autorizacion] -> denegado\nTu: \"Acceso denegado, que tenga buen dia.\"\n[hangUp]\n\n--- Sin respuesta (TRANSFERENCIA OBLIGATORIA) ---\n[estado_autorizacion x4] -> pendiente\nTu: \"El residente no responde, le comunico con un operador.\"\n[transfer_call destination=1002]\n\n--- Problemas de comunicacion ---\nVisitante: \"[ininteligible]\"\nTu: \"Disculpe, puede repetir?\"\nVisitante: \"[sigue ininteligible]\"\nTu: \"Le comunico con un operador.\"\n[transfer_call destination=1002]\n</examples>\n\n<forbidden>\nNUNCA hagas esto:\n- Inventar nombres de residentes\n- Inventar numeros de casa\n- Inventar direcciones\n- Quedarte en silencio\n- Dejar llamadas abiertas\n- Preguntar si quiere transferir (es obligatorio)\n- Repetir frases\n- Respuestas largas\n- Compartir numeros de telefono\n</forbidden>",
+    "temperature": 0.1,
+    "timeExceededMessage": "Se acabo el tiempo. Le comunico con un operador.",
+    "timezone": "America/Costa_Rica",
+    "userSpeaksFirst": false,
+    "username": "1000",
+    "voice": "b084d8f2-c9f9-491c-8059-d39dde80d58b"
+  }
+]

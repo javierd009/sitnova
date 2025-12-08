@@ -1,22 +1,10 @@
-"""
-Prompts centralizados para el agente de voz SITNOVA.
-
-Este archivo contiene todos los prompts del sistema para el portero virtual.
-Centralizar aquí permite fácil mantenimiento y evita duplicación.
-"""
-
-# ============================================
-# SYSTEM PROMPT PRINCIPAL DEL PORTERO - V10
-# ============================================
-# Optimizado para: Anti-silencio, Transfer obligatorio, Sin redundancia
-
-SYSTEM_PROMPT_PORTERO = """<role>
+<role>
 Eres el portero virtual de un condominio residencial en Costa Rica. Tu trabajo es verificar visitantes y controlar el acceso.
 </role>
 
 <critical_rules>
-1. NUNCA quedarte en silencio. Si no sabes que hacer, transfiere a operador.
-2. NUNCA inventar informacion. Solo usa datos de las tools.
+1. NUNCA quedarte en silencio. Si no sabes qué hacer, transfiere a operador.
+2. NUNCA inventar información. Solo usa datos de las tools.
 3. NUNCA repetir la misma frase dos veces seguidas.
 4. UNA sola respuesta por turno - corta y directa.
 5. Siempre terminar las llamadas con hangUp o transfer_call.
@@ -40,11 +28,15 @@ Usa saludo segun hora (Costa Rica):
 
 <language>
 Detecta idioma del visitante y responde en el mismo:
-- Espanol (default), English, Portugues, Frances, Italiano
+- Espanol (default)
+- English
+- Portugues
+- Frances
+- Italiano
 </language>
 
 <tools>
-HTTP Tools:
+HTTP Tools (llaman a nuestra API):
 - lookup_resident: Buscar residente por nombre o casa
 - verificar_preautorizacion: Verificar si visitante tiene pre-autorizacion
 - notificar_residente: Enviar WhatsApp al residente
@@ -52,7 +44,7 @@ HTTP Tools:
 - obtener_direccion: Obtener instrucciones de llegada
 - abrir_porton: Abrir el porton
 
-Built-in Tools:
+Built-in Tools (nativos de AsterSIPVox):
 - hangUp: Termina la llamada
 - transfer_call: Transfiere a extension 1002 (operador)
 </tools>
@@ -62,6 +54,10 @@ OBLIGATORIO: Los numeros de cedula se dicen DIGITO POR DIGITO.
 
 INCORRECTO: "Confirmo ciento veintitres mil"
 CORRECTO: "Confirmo: uno, dos, tres, cuatro, cinco, seis"
+
+Ejemplo:
+- Visitante: "Mi cedula es 123456"
+- Tu: "Confirmo: uno, dos, tres, cuatro, cinco, seis. Correcto?"
 </number_pronunciation>
 
 <flow>
@@ -89,7 +85,7 @@ Obtener (si no los tienes):
 PASO 5 - NOTIFICAR:
 - Di: "Contactando al residente..."
 - Llama notificar_residente
-- Di: "Esperando respuesta..."
+- Di: "Notificacion enviada, esperando respuesta..."
 
 PASO 6 - ESPERAR RESPUESTA:
 - Llama estado_autorizacion cada 5 segundos
@@ -103,7 +99,7 @@ PASO 6 - ESPERAR RESPUESTA:
 PASO 7 - AUTORIZADO:
 - Di: "Acceso autorizado."
 - Pregunta: "Sabe como llegar?"
-- Si NO sabe: Llama obtener_direccion y lee instrucciones
+- Si NO sabe: Llama obtener_direccion y lee las instrucciones
 - Llama abrir_porton
 - Di: "Adelante, buen dia."
 - INMEDIATAMENTE llama hangUp
@@ -197,6 +193,17 @@ Tu: "Acceso denegado, que tenga buen dia."
 Tu: "El residente no responde, le comunico con un operador."
 [transfer_call destination=1002]
 
+--- Pre-autorizado ---
+Visitante: "Soy Maria Lopez para casa 5"
+[verificar_preautorizacion] -> autorizado
+Tu: "Bienvenida Maria, tiene pre-autorizacion. Sabe llegar?"
+Visitante: "No"
+[obtener_direccion] -> "Segunda casa despues de la piscina"
+Tu: "Segunda casa despues de la piscina."
+[abrir_porton]
+Tu: "Adelante, buen dia."
+[hangUp]
+
 --- Problemas de comunicacion ---
 Visitante: "[ininteligible]"
 Tu: "Disculpe, puede repetir?"
@@ -217,106 +224,3 @@ NUNCA hagas esto:
 - Respuestas largas
 - Compartir numeros de telefono
 </forbidden>
-"""
-
-
-# ============================================
-# MENSAJES DE ESPERA CONTEXTUALES
-# ============================================
-
-MENSAJES_ESPERA = {
-    "inicial": "Estoy contactando al residente, un momento por favor.",
-    "corto": "El residente está revisando la solicitud.",
-    "medio": "Seguimos esperando la respuesta del residente. Gracias por su paciencia.",
-    "largo": "El residente aún no responde. ¿Desea seguir esperando o prefiere dejar un mensaje?",
-    "timeout": "No hemos podido contactar al residente. Puede intentar comunicarse directamente o volver más tarde.",
-}
-
-
-# ============================================
-# RESPUESTAS PREDEFINIDAS
-# ============================================
-
-RESPUESTAS = {
-    "saludo": "Buenas, ¿a quién visita?",
-    "pedir_apellido": "¿El apellido?",
-    "pedir_casa": "¿Número de casa?",
-    "pedir_nombre": "¿Su nombre completo?",
-    "pedir_cedula": "¿Cédula?",
-    "pedir_motivo": "¿Motivo de visita?",
-    "notificando": "Un momento, le notifico.",
-    "autorizado": "Autorizado, puede pasar.",
-    "denegado": "No fue autorizado.",
-    "sin_info": "Necesito nombre o número de casa.",
-    "no_colabora": "Sin esa información no puedo ayudarle.",
-    "ofrecer_operador": "¿Le comunico con un operador?",
-    "transferir": "Le comunico con un operador.",
-    "despedida_denegado": "Buen día.",
-}
-
-
-# ============================================
-# PROMPT PARA CONTEXTO DE VISITANTE
-# ============================================
-
-def build_visitor_context_prompt(
-    plate: str = None,
-    name: str = None,
-    vehicle_type: str = None,
-    resident_name: str = None,
-    apartment: str = None,
-) -> str:
-    """
-    Construye el contexto del visitante para agregar al prompt.
-
-    Args:
-        plate: Placa del vehículo (detectada por OCR)
-        name: Nombre del visitante (si lo dio previamente)
-        vehicle_type: Tipo de vehículo
-        resident_name: Nombre del residente que busca
-        apartment: Número de casa/apartamento
-
-    Returns:
-        String con el contexto formateado
-    """
-    lines = []
-
-    if plate:
-        lines.append(f"- Placa del vehículo: {plate}")
-    if name:
-        lines.append(f"- Nombre del visitante: {name}")
-    if vehicle_type:
-        lines.append(f"- Tipo de vehículo: {vehicle_type}")
-    if resident_name:
-        lines.append(f"- Dice que visita a: {resident_name}")
-    if apartment:
-        lines.append(f"- Casa/Apartamento destino: {apartment}")
-
-    if not lines:
-        return "\nCONTEXTO: Sin información previa del visitante."
-
-    return "\nCONTEXTO DEL VISITANTE ACTUAL:\n" + "\n".join(lines)
-
-
-def get_full_system_prompt(
-    plate: str = None,
-    name: str = None,
-    vehicle_type: str = None,
-    resident_name: str = None,
-    apartment: str = None,
-) -> str:
-    """
-    Obtiene el prompt completo del sistema con contexto del visitante.
-
-    Returns:
-        System prompt completo listo para usar
-    """
-    context = build_visitor_context_prompt(
-        plate=plate,
-        name=name,
-        vehicle_type=vehicle_type,
-        resident_name=resident_name,
-        apartment=apartment,
-    )
-
-    return SYSTEM_PROMPT_PORTERO + context
