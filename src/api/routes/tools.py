@@ -1227,32 +1227,19 @@ async def notificar_residente(
                 # Destino
                 mensaje_wa += f"🏠 *Destino:* {apt}"
 
-                # Intentar enviar con botones interactivos (preferido)
-                # Si falla, usar texto plano como fallback
-                buttons = [
-                    {"buttonId": "autorizar", "buttonText": {"displayText": "✅ Autorizar"}},
-                    {"buttonId": "denegar", "buttonText": {"displayText": "❌ Denegar"}}
-                ]
+                # NOTA: Los botones de Evolution API no funcionan correctamente
+                # (se envían como viewOnceMessage y no se muestran)
+                # Usamos texto simple que SÍ funciona
+                mensaje_wa += (
+                    f"\n\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"✅ Responda *SI* para autorizar\n"
+                    f"❌ Responda *NO* para denegar\n"
+                    f"💬 O envíe un mensaje personalizado"
+                )
 
-                try:
-                    result_wa = evolution.send_with_buttons(whatsapp_number, mensaje_wa, buttons)
-                    if not result_wa.get("success"):
-                        # Fallback a texto plano si botones no funcionan
-                        logger.warning("⚠️ Botones no soportados, usando texto plano")
-                        mensaje_wa += (
-                            f"\n\n✅ Responda *SI* para autorizar\n"
-                            f"❌ Responda *NO* para denegar\n"
-                            f"💬 O envíe un mensaje personalizado"
-                        )
-                        result_wa = evolution.send_text(whatsapp_number, mensaje_wa)
-                except Exception as btn_error:
-                    logger.warning(f"⚠️ Error con botones, usando texto: {btn_error}")
-                    mensaje_wa += (
-                        f"\n\n✅ Responda *SI* para autorizar\n"
-                        f"❌ Responda *NO* para denegar\n"
-                        f"💬 O envíe un mensaje personalizado"
-                    )
-                    result_wa = evolution.send_text(whatsapp_number, mensaje_wa)
+                logger.info(f"📤 Enviando mensaje de texto a {whatsapp_number}")
+                result_wa = evolution.send_text(whatsapp_number, mensaje_wa)
 
                 if result_wa.get("success"):
                     logger.success(f"WhatsApp enviado a {whatsapp_number}")
