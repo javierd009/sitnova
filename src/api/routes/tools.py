@@ -63,23 +63,39 @@ APELLIDOS_COMUNES = [
 
 # Mapeo de errores foneticos comunes en espanol (voz a texto)
 PHONETIC_CORRECTIONS = {
-    # Errores comunes de reconocimiento de voz
+    # Errores comunes de reconocimiento de voz para apellidos
     "radriga": "rodriguez",
+    "radríguez": "rodriguez",
+    "rodrigues": "rodriguez",
     "gonsales": "gonzalez",
     "gonsalez": "gonzalez",
+    "gonsález": "gonzalez",
     "ernandez": "hernandez",
+    "fernandez": "hernandez",  # Confusión común H/F
     "errera": "herrera",
     "arcia": "garcia",
+    "garzia": "garcia",
     "artinez": "martinez",
+    "martinéz": "martinez",
     "opes": "lopez",
+    "lopes": "lopez",
     "eres": "perez",
+    "peres": "perez",
     "anches": "sanchez",
+    "sanches": "sanchez",
     "amires": "ramirez",
+    "ramires": "ramirez",
     "olorado": "colorado",
     "oloraro": "colorado",
-    # Variaciones de nombres (normalizadas a forma común)
+    "colorádo": "colorado",
+    # Nombres comunes con variaciones
     "jhon": "john",
     "jon": "john",
+    "maria": "maria",
+    "mária": "maria",
+    "jose": "jose",
+    "josé": "jose",
+    "jóse": "jose",
     # Variaciones de iniciales (STT puede transcribir letras de formas diferentes)
     "dese": "dc",
     "disi": "dc",
@@ -93,30 +109,114 @@ PHONETIC_CORRECTIONS = {
     "dce": "dc",
     "decé": "dc",
     "desé": "dc",
+    "d.c.": "dc",
+    "d c": "dc",
+    "desy": "deisy",
+    "daisy": "deisy",
+    "daysi": "deisy",
+    "deisi": "deisy",
+    "daisi": "deisy",
 }
 
 # Patrones de variación fonética bidireccional
 # Estos se aplicarán dinámicamente para generar variaciones
 PHONETIC_VARIATIONS = [
+    # Vocales
     ("ai", "ei"),  # Daisy ↔ Deisy
     ("ei", "ai"),  # Deisy ↔ Daisy
+    ("ay", "ey"),  # Daysy ↔ Deysy
+    ("ey", "ay"),  # Deysy ↔ Daysy
     ("y", "i"),    # Daisy ↔ Daisi
     ("i", "y"),    # Daisi ↔ Daisy
+    # Consonantes
     ("ll", "y"),   # Lluis ↔ Yuis
-    ("y", "ll"),   # Yolanda ↔ Llolanda (menos común pero posible)
+    ("y", "ll"),   # Yolanda ↔ Llolanda
     ("b", "v"),    # Bictoria ↔ Victoria
     ("v", "b"),    # Victoria ↔ Bictoria
     ("s", "z"),    # Rosa ↔ Roza
     ("z", "s"),    # Roza ↔ Rosa
     ("c", "s"),    # Cecilia ↔ Sesilia
     ("s", "c"),    # Sesilia ↔ Cecilia
+    ("g", "j"),    # Gose ↔ Jose
+    ("j", "g"),    # Jose ↔ Gose
+    ("h", ""),     # Hernandez ↔ Ernandez (h muda)
+    ("qu", "k"),   # Quique ↔ Kike
+    ("k", "qu"),   # Kike ↔ Quique
+    ("ñ", "ni"),   # Muñoz ↔ Munioz
+    ("ni", "ñ"),   # Munioz ↔ Muñoz
+    # Dobles
+    ("rr", "r"),   # Ferreira ↔ Fereira
+    ("ll", "l"),   # Llamas ↔ Lamas
+    ("ss", "s"),   # Casstro ↔ Castro
+    ("nn", "n"),   # Jannina ↔ Janina
 ]
 
 
 def get_phonetic_correction(word: str) -> str:
-    """Intenta corregir errores foneticos comunes."""
+    """
+    Intenta corregir errores foneticos comunes.
+
+    Busca en orden:
+    1. Match exacto en PHONETIC_CORRECTIONS
+    2. Match parcial si la palabra contiene alguna key
+    3. Retorna la palabra original si no hay match
+    """
+    if not word:
+        return word
+
     word_lower = normalize_text(word.lower().strip())
-    return PHONETIC_CORRECTIONS.get(word_lower, word)
+
+    # 1. Match exacto
+    if word_lower in PHONETIC_CORRECTIONS:
+        return PHONETIC_CORRECTIONS[word_lower]
+
+    # 2. Match de dos palabras juntas (ej: "de ce" o "di ci")
+    # Buscar combinaciones de palabras separadas
+    for key, correction in PHONETIC_CORRECTIONS.items():
+        # Si la key tiene espacio y coincide con la palabra
+        if " " in key:
+            key_joined = key.replace(" ", "")
+            if word_lower == key_joined:
+                return correction
+
+    # 3. Retornar original
+    return word
+
+
+def apply_all_phonetic_corrections(text: str) -> str:
+    """
+    Aplica todas las correcciones fonéticas posibles a un texto completo.
+    Maneja frases como "dese colorado" -> "dc colorado"
+    """
+    if not text:
+        return text
+
+    text_lower = normalize_text(text.lower().strip())
+
+    # Primero intentar match de la frase completa
+    if text_lower in PHONETIC_CORRECTIONS:
+        return PHONETIC_CORRECTIONS[text_lower]
+
+    # Aplicar correcciones palabra por palabra
+    words = text_lower.split()
+    corrected_words = []
+
+    i = 0
+    while i < len(words):
+        # Intentar match de dos palabras juntas
+        if i < len(words) - 1:
+            two_words = f"{words[i]} {words[i+1]}"
+            if two_words in PHONETIC_CORRECTIONS:
+                corrected_words.append(PHONETIC_CORRECTIONS[two_words])
+                i += 2
+                continue
+
+        # Match de una sola palabra
+        corrected = get_phonetic_correction(words[i])
+        corrected_words.append(corrected)
+        i += 1
+
+    return " ".join(corrected_words)
 
 
 def generate_phonetic_variations(text: str, max_variations: int = 5) -> List[str]:
@@ -345,7 +445,15 @@ router = APIRouter()
 # REGISTRO DE LLAMADAS (para debugging)
 # ============================================
 tool_calls_log = []
-MAX_LOG_SIZE = 50
+MAX_LOG_SIZE = 100  # Aumentado para más historial
+_current_call_id = 0
+
+
+def get_next_call_id() -> int:
+    """Obtiene un ID único para cada llamada."""
+    global _current_call_id
+    _current_call_id += 1
+    return _current_call_id
 
 
 # ============================================
@@ -359,14 +467,20 @@ async def log_request(request: Request, endpoint: str) -> dict:
     except:
         pass
 
+    call_id = get_next_call_id()
+
     # Store in memory log for diagnostics
     call_record = {
+        "call_id": call_id,
         "timestamp": datetime.now().isoformat(),
         "endpoint": endpoint,
         "method": request.method,
         "query_params": dict(request.query_params),
         "body": body,
         "client_ip": request.client.host if request.client else "unknown",
+        "response": None,  # Se llena después
+        "duration_ms": None,
+        "status": "processing",
     }
     tool_calls_log.append(call_record)
 
@@ -374,13 +488,44 @@ async def log_request(request: Request, endpoint: str) -> dict:
     if len(tool_calls_log) > MAX_LOG_SIZE:
         tool_calls_log.pop(0)
 
-    logger.info(f"=== INCOMING REQUEST TO {endpoint} ===")
-    logger.info(f"Timestamp: {call_record['timestamp']}")
-    logger.info(f"Client IP: {call_record['client_ip']}")
-    logger.info(f"Body: {body}")
-    logger.info(f"=====================================")
+    logger.info(f"")
+    logger.info(f"{'='*60}")
+    logger.info(f"📥 CALL #{call_id} → {endpoint}")
+    logger.info(f"{'='*60}")
+    logger.info(f"⏰ Timestamp: {call_record['timestamp']}")
+    logger.info(f"🌐 Client IP: {call_record['client_ip']}")
+    logger.info(f"📦 Body: {json.dumps(body, ensure_ascii=False)}")
+
+    # Attach call_id to body for response tracking
+    body["_call_id"] = call_id
+    body["_start_time"] = datetime.now()
 
     return body
+
+
+def log_response(body: dict, response_data: dict, status: str = "success"):
+    """Log the response for a tool call."""
+    call_id = body.get("_call_id")
+    start_time = body.get("_start_time")
+
+    duration_ms = None
+    if start_time:
+        duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+
+    # Find and update the call record
+    for record in reversed(tool_calls_log):
+        if record.get("call_id") == call_id:
+            record["response"] = response_data
+            record["duration_ms"] = duration_ms
+            record["status"] = status
+            break
+
+    # Log response
+    logger.info(f"")
+    logger.info(f"📤 RESPONSE #{call_id} ({duration_ms}ms) → {status}")
+    logger.info(f"📋 Result: {response_data.get('result', response_data.get('mensaje', 'N/A'))[:100]}")
+    logger.info(f"{'='*60}")
+    logger.info(f"")
 
 
 # ============================================
@@ -937,10 +1082,18 @@ async def buscar_residente(
 
     condo_id = body.get("condominium_id") or condominium_id or "default-condo-id"
 
+    # Aplicar correcciones fonéticas al nombre para mejorar búsqueda
+    nombre_original = nombre_buscar
+    if nombre_buscar:
+        nombre_corregido = apply_all_phonetic_corrections(nombre_buscar)
+        if nombre_corregido != nombre_buscar.lower():
+            logger.info(f"🔄 Corrección fonética aplicada: '{nombre_buscar}' -> '{nombre_corregido}'")
+            nombre_buscar = nombre_corregido
+
     logger.info(f"📊 PARAMETROS PROCESADOS:")
     logger.info(f"   - search_query: '{search_query}'")
     logger.info(f"   - apt: '{apt}'")
-    logger.info(f"   - nombre_buscar: '{nombre_buscar}'")
+    logger.info(f"   - nombre_buscar: '{nombre_buscar}' (original: '{nombre_original}')")
     logger.info(f"   - condo_id: '{condo_id}'")
     logger.info(f"🔍 Buscando residente: apartamento={apt}, nombre={nombre_buscar}")
 
@@ -948,14 +1101,13 @@ async def buscar_residente(
         supabase = get_supabase()
         if supabase is None:
             logger.warning("Supabase no configurado")
-            return JSONResponse(
-                content={
-                    "encontrado": False,
-                    "mensaje": "Base de datos no disponible",
-                    "result": "No puedo acceder a la base de datos en este momento. Por favor intente más tarde.",
-                },
-                headers=ULTRAVOX_HEADERS
-            )
+            response_data = {
+                "encontrado": False,
+                "mensaje": "Base de datos no disponible",
+                "result": "No puedo acceder a la base de datos en este momento. Por favor intente más tarde.",
+            }
+            log_response(body, response_data, "db_unavailable")
+            return JSONResponse(content=response_data, headers=ULTRAVOX_HEADERS)
 
         # CASO 1: Búsqueda por apartamento (más específica)
         if apt:
@@ -991,15 +1143,14 @@ async def buscar_residente(
 
             if not result.data or len(result.data) == 0:
                 logger.info(f"❌ No se encontró residente en {apt}")
-                return JSONResponse(
-                    content={
-                        "encontrado": False,
-                        "cantidad": 0,
-                        "mensaje": f"No hay ningún residente registrado en {apt}.",
-                        "result": f"No encontré ningún residente registrado en la casa o apartamento {apt}. ¿Podría verificar el número?",
-                    },
-                    headers=ULTRAVOX_HEADERS
-                )
+                response_data = {
+                    "encontrado": False,
+                    "cantidad": 0,
+                    "mensaje": f"No hay ningún residente registrado en {apt}.",
+                    "result": f"No encontré ningún residente registrado en la casa o apartamento {apt}. ¿Podría verificar el número?",
+                }
+                log_response(body, response_data, "not_found")
+                return JSONResponse(content=response_data, headers=ULTRAVOX_HEADERS)
 
             # Si hay múltiples matches, seleccionar el mejor
             mejor_match = result.data[0]
@@ -1011,20 +1162,19 @@ async def buscar_residente(
                         break
 
             logger.info(f"✅ Encontrado: {mejor_match.get('full_name')} en {mejor_match.get('apartment')}")
-            return JSONResponse(
-                content={
-                    "encontrado": True,
-                    "cantidad": 1,
-                    "residente": {
-                        "nombre": mejor_match.get("full_name"),
-                        "apartamento": mejor_match.get("apartment"),
-                        "tiene_telefono": bool(mejor_match.get("phone")),
-                    },
-                    "mensaje": f"Encontré a {mejor_match.get('full_name')} en {mejor_match.get('apartment')}.",
-                    "result": f"Encontré a {mejor_match.get('full_name')} registrado en {mejor_match.get('apartment')}. ¿Desea que le notifique?",
+            response_data = {
+                "encontrado": True,
+                "cantidad": 1,
+                "residente": {
+                    "nombre": mejor_match.get("full_name"),
+                    "apartamento": mejor_match.get("apartment"),
+                    "tiene_telefono": bool(mejor_match.get("phone")),
                 },
-                headers=ULTRAVOX_HEADERS
-            )
+                "mensaje": f"Encontré a {mejor_match.get('full_name')} en {mejor_match.get('apartment')}.",
+                "result": f"Encontré a {mejor_match.get('full_name')} registrado en {mejor_match.get('apartment')}. ¿Desea que le notifique?",
+            }
+            log_response(body, response_data, "found_by_apartment")
+            return JSONResponse(content=response_data, headers=ULTRAVOX_HEADERS)
 
         # CASO 2: Búsqueda por nombre (puede ser ambigua)
         elif nombre_buscar:
@@ -1051,15 +1201,14 @@ async def buscar_residente(
 
             if not all_residents.data:
                 logger.warning("No hay residentes en la base de datos")
-                return JSONResponse(
-                    content={
-                        "encontrado": False,
-                        "cantidad": 0,
-                        "mensaje": "No hay residentes registrados.",
-                        "result": "No encontré ningún residente registrado en el sistema.",
-                    },
-                    headers=ULTRAVOX_HEADERS
-                )
+                response_data = {
+                    "encontrado": False,
+                    "cantidad": 0,
+                    "mensaje": "No hay residentes registrados.",
+                    "result": "No encontré ningún residente registrado en el sistema.",
+                }
+                log_response(body, response_data, "no_residents_in_db")
+                return JSONResponse(content=response_data, headers=ULTRAVOX_HEADERS)
 
             # Crear lista de nombres para fuzzy matching
             nombres_db = [r.get("full_name", "") for r in all_residents.data]
@@ -1121,20 +1270,19 @@ async def buscar_residente(
                 if len(exact_matches) == 1:
                     residente = exact_matches[0]
                     logger.info(f"✅ Un solo match exacto: {residente.get('full_name')}")
-                    return JSONResponse(
-                        content={
-                            "encontrado": True,
-                            "cantidad": 1,
-                            "residente": {
-                                "nombre": residente.get("full_name"),
-                                "apartamento": residente.get("apartment"),
-                                "tiene_telefono": bool(residente.get("phone")),
-                            },
-                            "mensaje": f"Encontré a {residente.get('full_name')} en {residente.get('apartment')}.",
-                            "result": f"Encontré a {residente.get('full_name')} en {residente.get('apartment')}. ¿Desea que le notifique?",
+                    response_data = {
+                        "encontrado": True,
+                        "cantidad": 1,
+                        "residente": {
+                            "nombre": residente.get("full_name"),
+                            "apartamento": residente.get("apartment"),
+                            "tiene_telefono": bool(residente.get("phone")),
                         },
-                        headers=ULTRAVOX_HEADERS
-                    )
+                        "mensaje": f"Encontré a {residente.get('full_name')} en {residente.get('apartment')}.",
+                        "result": f"Encontré a {residente.get('full_name')} en {residente.get('apartment')}. ¿Desea que le notifique?",
+                    }
+                    log_response(body, response_data, "exact_match_single")
+                    return JSONResponse(content=response_data, headers=ULTRAVOX_HEADERS)
                 else:
                     # Múltiples matches exactos - listar las opciones
                     logger.info(f"⚠️ Múltiples matches exactos ({len(exact_matches)})")
@@ -1144,20 +1292,19 @@ async def buscar_residente(
                         opciones.append(f"{r.get('full_name')} en {r.get('apartment')}")
                     lista_opciones = ", ".join(opciones)
 
-                    return JSONResponse(
-                        content={
-                            "encontrado": True,
-                            "cantidad": len(exact_matches),
-                            "ambiguo": True,
-                            "residentes": [
-                                {"nombre": r.get("full_name"), "apartamento": r.get("apartment")}
-                                for r in exact_matches[:5]
-                            ],
-                            "mensaje": f"Hay {len(exact_matches)} residentes con ese nombre.",
-                            "result": f"Encontré {len(exact_matches)} personas: {lista_opciones}. ¿A cuál de ellos visita?",
-                        },
-                        headers=ULTRAVOX_HEADERS
-                    )
+                    response_data = {
+                        "encontrado": True,
+                        "cantidad": len(exact_matches),
+                        "ambiguo": True,
+                        "residentes": [
+                            {"nombre": r.get("full_name"), "apartamento": r.get("apartment")}
+                            for r in exact_matches[:5]
+                        ],
+                        "mensaje": f"Hay {len(exact_matches)} residentes con ese nombre.",
+                        "result": f"Encontré {len(exact_matches)} personas: {lista_opciones}. ¿A cuál de ellos visita?",
+                    }
+                    log_response(body, response_data, "exact_match_multiple")
+                    return JSONResponse(content=response_data, headers=ULTRAVOX_HEADERS)
 
             # 2. No hay match exacto - intentar fuzzy matching
             logger.info(f"🔄 Sin match exacto, probando fuzzy matching...")
@@ -1167,8 +1314,9 @@ async def buscar_residente(
             search_query = nombre_clean or apellido_clean or nombre_buscar
 
             if search_query:
-                fuzzy_results = fuzzy_match_name(search_query, nombres_db, threshold=0.5)
-                logger.info(f"   Fuzzy results: {fuzzy_results[:3]}")
+                # Umbral bajo (0.45) para mayor tolerancia a errores de STT
+                fuzzy_results = fuzzy_match_name(search_query, nombres_db, threshold=0.45)
+                logger.info(f"   Fuzzy results (threshold=0.45): {fuzzy_results[:5]}")
 
             if fuzzy_results:
                 # Hay coincidencias fuzzy
@@ -1178,23 +1326,22 @@ async def buscar_residente(
                     None
                 )
 
-                if best_score >= 0.8 and best_resident:
-                    # Match muy bueno, usar directamente
+                if best_score >= 0.7 and best_resident:
+                    # Match bueno (70%+), usar directamente
                     logger.info(f"✅ Fuzzy match alto ({best_score:.0%}): {best_match_name}")
-                    return JSONResponse(
-                        content={
-                            "encontrado": True,
-                            "cantidad": 1,
-                            "residente": {
-                                "nombre": best_resident.get("full_name"),
-                                "apartamento": best_resident.get("apartment"),
-                                "tiene_telefono": bool(best_resident.get("phone")),
-                            },
-                            "mensaje": f"Encontré a {best_resident.get('full_name')} en {best_resident.get('apartment')}.",
-                            "result": f"Encontré a {best_resident.get('full_name')} en {best_resident.get('apartment')}. ¿Desea que le notifique?",
+                    response_data = {
+                        "encontrado": True,
+                        "cantidad": 1,
+                        "residente": {
+                            "nombre": best_resident.get("full_name"),
+                            "apartamento": best_resident.get("apartment"),
+                            "tiene_telefono": bool(best_resident.get("phone")),
                         },
-                        headers=ULTRAVOX_HEADERS
-                    )
+                        "mensaje": f"Encontré a {best_resident.get('full_name')} en {best_resident.get('apartment')}.",
+                        "result": f"Encontré a {best_resident.get('full_name')} en {best_resident.get('apartment')}. ¿Desea que le notifique?",
+                    }
+                    log_response(body, response_data, f"fuzzy_match_high_{best_score:.0%}")
+                    return JSONResponse(content=response_data, headers=ULTRAVOX_HEADERS)
                 elif fuzzy_results:
                     # Match moderado, mostrar opciones
                     residentes_sugeridos = []
@@ -1212,17 +1359,16 @@ async def buscar_residente(
                         f"{s['nombre']} en {s['apartamento']}"
                         for s in residentes_sugeridos[:3]
                     ])
-                    return JSONResponse(
-                        content={
-                            "encontrado": False,
-                            "sugerencias": True,
-                            "cantidad": len(residentes_sugeridos),
-                            "residentes_sugeridos": residentes_sugeridos,
-                            "mensaje": f"No encontré exactamente '{nombre_buscar}'. Opciones: {opciones_texto}",
-                            "result": f"No encontré exactamente ese nombre. Tengo registrados: {opciones_texto}. ¿Es alguno de ellos?",
-                        },
-                        headers=ULTRAVOX_HEADERS
-                    )
+                    response_data = {
+                        "encontrado": False,
+                        "sugerencias": True,
+                        "cantidad": len(residentes_sugeridos),
+                        "residentes_sugeridos": residentes_sugeridos,
+                        "mensaje": f"No encontré exactamente '{nombre_buscar}'. Opciones: {opciones_texto}",
+                        "result": f"No encontré exactamente ese nombre. Tengo registrados: {opciones_texto}. ¿Es alguno de ellos?",
+                    }
+                    log_response(body, response_data, "fuzzy_match_suggestions")
+                    return JSONResponse(content=response_data, headers=ULTRAVOX_HEADERS)
 
             # 3. Ni match exacto ni fuzzy - sugerir apellidos similares
             logger.info(f"❌ Sin matches, buscando sugerencias de apellido...")
@@ -1232,51 +1378,47 @@ async def buscar_residente(
                 sugerencias_apellido = suggest_similar_surnames(apellido_query)
                 if sugerencias_apellido:
                     logger.info(f"💡 Sugerencias de apellido: {sugerencias_apellido}")
-                    return JSONResponse(
-                        content={
-                            "encontrado": False,
-                            "sugerencias": True,
-                            "cantidad": 0,
-                            "sugerencias_apellido": sugerencias_apellido,
-                            "mensaje": f"No encontré '{nombre_buscar}'. ¿Quiso decir apellido {sugerencias_apellido[0]}?",
-                            "result": f"No encontré a nadie con ese nombre. ¿El apellido es {sugerencias_apellido[0]}? Por favor confirme.",
-                        },
-                        headers=ULTRAVOX_HEADERS
-                    )
+                    response_data = {
+                        "encontrado": False,
+                        "sugerencias": True,
+                        "cantidad": 0,
+                        "sugerencias_apellido": sugerencias_apellido,
+                        "mensaje": f"No encontré '{nombre_buscar}'. ¿Quiso decir apellido {sugerencias_apellido[0]}?",
+                        "result": f"No encontré a nadie con ese nombre. ¿El apellido es {sugerencias_apellido[0]}? Por favor confirme.",
+                    }
+                    log_response(body, response_data, "surname_suggestions")
+                    return JSONResponse(content=response_data, headers=ULTRAVOX_HEADERS)
 
             # 4. Sin resultados ni sugerencias
             logger.info(f"❌ Sin matches ni sugerencias para '{nombre_buscar}'")
-            return JSONResponse(
-                content={
-                    "encontrado": False,
-                    "cantidad": 0,
-                    "mensaje": f"No encontré ningún residente con el nombre {nombre_buscar}.",
-                    "result": f"No encontré ningún residente con ese nombre. ¿Tiene el número de casa o puede deletrear el apellido?",
-                },
-                headers=ULTRAVOX_HEADERS
-            )
+            response_data = {
+                "encontrado": False,
+                "cantidad": 0,
+                "mensaje": f"No encontré ningún residente con el nombre {nombre_buscar}.",
+                "result": f"No encontré ningún residente con ese nombre. ¿Tiene el número de casa o puede deletrear el apellido?",
+            }
+            log_response(body, response_data, "no_matches")
+            return JSONResponse(content=response_data, headers=ULTRAVOX_HEADERS)
 
         # CASO 3: Sin parámetros suficientes
         else:
-            return JSONResponse(
-                content={
-                    "encontrado": False,
-                    "mensaje": "Necesito el número de casa/apartamento o el nombre del residente.",
-                    "result": "Para poder ayudarle necesito saber a quién busca. ¿Tiene el número de casa o el nombre de la persona?",
-                },
-                headers=ULTRAVOX_HEADERS
-            )
+            response_data = {
+                "encontrado": False,
+                "mensaje": "Necesito el número de casa/apartamento o el nombre del residente.",
+                "result": "Para poder ayudarle necesito saber a quién busca. ¿Tiene el número de casa o el nombre de la persona?",
+            }
+            log_response(body, response_data, "missing_params")
+            return JSONResponse(content=response_data, headers=ULTRAVOX_HEADERS)
 
     except Exception as e:
         logger.error(f"❌ Error buscando residente: {e}")
-        return JSONResponse(
-            content={
-                "encontrado": False,
-                "mensaje": f"Error en la búsqueda: {str(e)}",
-                "result": "Hubo un problema técnico al buscar. Por favor intente nuevamente.",
-            },
-            headers=ULTRAVOX_HEADERS
-        )
+        response_data = {
+            "encontrado": False,
+            "mensaje": f"Error en la búsqueda: {str(e)}",
+            "result": "Hubo un problema técnico al buscar. Por favor intente nuevamente.",
+        }
+        log_response(body, response_data, "error")
+        return JSONResponse(content=response_data, headers=ULTRAVOX_HEADERS)
 
 
 @router.api_route("/estado-autorizacion", methods=["GET", "POST"])
@@ -1460,23 +1602,189 @@ async def estado_autorizacion(
 # DIAGNOSTICO - Ver llamadas recientes
 # ============================================
 @router.get("/diagnostico")
-async def diagnostico():
+async def diagnostico(
+    limit: int = Query(10, description="Número de llamadas a mostrar"),
+    endpoint: Optional[str] = Query(None, description="Filtrar por endpoint"),
+    status: Optional[str] = Query(None, description="Filtrar por estado (success, error, etc.)"),
+):
     """
-    Muestra las ultimas llamadas a los tools.
-    Util para verificar que AsterSIPVox esta llamando correctamente.
+    Muestra las ultimas llamadas a los tools con información detallada.
+    Util para debugging del flujo AsterSIPVox → SITNOVA.
+
+    Query params:
+    - limit: Número de llamadas a mostrar (default: 10, max: 100)
+    - endpoint: Filtrar por endpoint (ej: "/buscar-residente")
+    - status: Filtrar por estado (ej: "success", "error", "not_found")
     """
+    # Filtrar llamadas
+    filtered_calls = tool_calls_log.copy()
+
+    if endpoint:
+        filtered_calls = [c for c in filtered_calls if endpoint in c.get("endpoint", "")]
+
+    if status:
+        filtered_calls = [c for c in filtered_calls if c.get("status") == status]
+
+    # Limitar resultados
+    limit = min(limit, 100)
+    recent_calls = filtered_calls[-limit:]
+
+    # Calcular estadísticas
+    total_calls = len(tool_calls_log)
+    success_count = sum(1 for c in tool_calls_log if c.get("status") == "success")
+    error_count = sum(1 for c in tool_calls_log if c.get("status") == "error")
+    avg_duration = 0
+    durations = [c.get("duration_ms") for c in tool_calls_log if c.get("duration_ms")]
+    if durations:
+        avg_duration = sum(durations) / len(durations)
+
+    # Endpoint más usado
+    endpoint_counts = {}
+    for c in tool_calls_log:
+        ep = c.get("endpoint", "unknown")
+        endpoint_counts[ep] = endpoint_counts.get(ep, 0) + 1
+
     return {
-        "total_calls": len(tool_calls_log),
-        "recent_calls": tool_calls_log[-10:],  # Ultimas 10
-        "message": "Estas son las ultimas llamadas recibidas a los endpoints de tools"
+        "total_calls": total_calls,
+        "filtered_count": len(filtered_calls),
+        "showing": len(recent_calls),
+        "stats": {
+            "success_rate": f"{(success_count/total_calls*100):.1f}%" if total_calls > 0 else "N/A",
+            "error_count": error_count,
+            "avg_duration_ms": round(avg_duration, 1),
+            "endpoints_usage": endpoint_counts,
+        },
+        "recent_calls": recent_calls,
+        "message": "Use ?endpoint=/buscar-residente para filtrar por endpoint"
     }
 
 
 @router.delete("/diagnostico")
 async def limpiar_diagnostico():
     """Limpia el log de llamadas."""
+    global _current_call_id
     tool_calls_log.clear()
+    _current_call_id = 0
     return {"message": "Log limpiado", "total_calls": 0}
+
+
+# ============================================
+# HEALTH CHECK COMPLETO
+# ============================================
+@router.get("/health")
+async def health_check():
+    """
+    Health check completo para verificar estado del sistema.
+
+    Verifica:
+    - Conexión a Supabase
+    - Estado de Evolution API (WhatsApp)
+    - Configuración del condominio
+    - Estadísticas de llamadas recientes
+
+    Usar para monitoreo y debugging de la infraestructura.
+    """
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": "1.3.0",
+        "checks": {}
+    }
+
+    # 1. Check Supabase
+    try:
+        supabase = get_supabase()
+        if supabase:
+            # Intenta una query simple
+            result = supabase.table("condominiums").select("id").limit(1).execute()
+            health_status["checks"]["supabase"] = {
+                "status": "ok",
+                "message": "Conexión activa"
+            }
+        else:
+            health_status["checks"]["supabase"] = {
+                "status": "warning",
+                "message": "No configurado (usando mock)"
+            }
+    except Exception as e:
+        health_status["status"] = "degraded"
+        health_status["checks"]["supabase"] = {
+            "status": "error",
+            "message": str(e)
+        }
+
+    # 2. Check Evolution API config
+    try:
+        condo_config = await get_condo_config()
+        if condo_config.evolution_api_key:
+            health_status["checks"]["evolution_api"] = {
+                "status": "ok",
+                "message": f"Configurado para {condo_config.evolution_instance_name}",
+                "instance": condo_config.evolution_instance_name
+            }
+        else:
+            health_status["checks"]["evolution_api"] = {
+                "status": "warning",
+                "message": "No configurado (usando mock)"
+            }
+    except Exception as e:
+        health_status["checks"]["evolution_api"] = {
+            "status": "error",
+            "message": str(e)
+        }
+
+    # 3. Check condominium config
+    try:
+        condo_config = await get_condo_config()
+        health_status["checks"]["condominium"] = {
+            "status": "ok",
+            "name": condo_config.name,
+            "has_operator": bool(condo_config.operator_phone or settings.operator_phone)
+        }
+    except Exception as e:
+        health_status["checks"]["condominium"] = {
+            "status": "error",
+            "message": str(e)
+        }
+
+    # 4. Call statistics (últimos 5 minutos)
+    now = datetime.now()
+    recent_calls = [
+        c for c in tool_calls_log
+        if c.get("timestamp") and
+        (now - datetime.fromisoformat(c["timestamp"])).total_seconds() < 300
+    ]
+    success_recent = sum(1 for c in recent_calls if c.get("status") not in ["error", "processing"])
+    error_recent = sum(1 for c in recent_calls if c.get("status") == "error")
+
+    health_status["checks"]["tools_activity"] = {
+        "status": "ok",
+        "calls_last_5min": len(recent_calls),
+        "success": success_recent,
+        "errors": error_recent,
+        "total_logged": len(tool_calls_log)
+    }
+
+    # 5. Memory check (log size)
+    if len(tool_calls_log) >= MAX_LOG_SIZE * 0.9:
+        health_status["checks"]["memory"] = {
+            "status": "warning",
+            "message": f"Log casi lleno ({len(tool_calls_log)}/{MAX_LOG_SIZE})"
+        }
+    else:
+        health_status["checks"]["memory"] = {
+            "status": "ok",
+            "log_usage": f"{len(tool_calls_log)}/{MAX_LOG_SIZE}"
+        }
+
+    # Determinar status general
+    statuses = [c.get("status") for c in health_status["checks"].values()]
+    if "error" in statuses:
+        health_status["status"] = "unhealthy"
+    elif "warning" in statuses:
+        health_status["status"] = "degraded"
+
+    return health_status
 
 
 @router.get("/autorizaciones-pendientes")
