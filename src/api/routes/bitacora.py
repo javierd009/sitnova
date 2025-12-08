@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from src.database.connection import get_supabase
 
-router = APIRouter(prefix="/bitacora", tags=["Bitácora"])
+router = APIRouter(tags=["Bitácora"])
 
 
 # ============================================
