@@ -12,7 +12,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 
-from src.database.connection import get_supabase_client
+from src.database.connection import get_supabase
 
 router = APIRouter(prefix="/bitacora", tags=["Bitácora"])
 
@@ -110,7 +110,7 @@ async def registrar_acceso(request: RegistrarAccesoRequest):
     Este endpoint es llamado por el agente de voz después de cada interacción.
     """
     try:
-        supabase = get_supabase_client()
+        supabase = get_supabase()
 
         # Preparar datos
         data = {
@@ -168,7 +168,7 @@ async def listar_bitacora(
     Lista los registros de la bitácora con filtros y paginación.
     """
     try:
-        supabase = get_supabase_client()
+        supabase = get_supabase()
 
         # Construir query
         query = supabase.table("bitacora_accesos").select("*", count="exact")
@@ -279,7 +279,7 @@ async def obtener_estadisticas(
     Obtiene estadísticas diarias de la bitácora.
     """
     try:
-        supabase = get_supabase_client()
+        supabase = get_supabase()
 
         query = supabase.table("bitacora_estadisticas_diarias").select("*")
 
@@ -324,7 +324,7 @@ async def ultimos_accesos(
     Obtiene los últimos accesos para el dashboard en tiempo real.
     """
     try:
-        supabase = get_supabase_client()
+        supabase = get_supabase()
 
         query = supabase.table("bitacora_accesos").select("*")
 
@@ -364,7 +364,7 @@ async def obtener_entrada(entry_id: str):
     Obtiene una entrada específica de la bitácora.
     """
     try:
-        supabase = get_supabase_client()
+        supabase = get_supabase()
 
         result = supabase.table("bitacora_accesos").select("*").eq("id", entry_id).single().execute()
 
