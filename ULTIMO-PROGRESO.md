@@ -1,55 +1,137 @@
 # SITNOVA - Último Progreso
 
-**Fecha**: 2025-12-06
-**Última actualización**: Dashboard Admin Completo + Monitoring + CI/CD
+**Fecha**: 2025-12-08
+**Última actualización**: V14 - Spanish Metaphone + Diagnóstico de Issues
+
+---
+
+## ⚠️ IMPORTANTE: Deploy Manual en Portainer
+
+> **CRÍTICO**: Los deploys del backend en Portainer se hacen **MANUALMENTE**.
+>
+> GitHub Actions pushea la imagen a GitHub Container Registry, pero el usuario
+> debe actualizar manualmente el contenedor en Portainer.
+>
+> **Commits pendientes de deploy**:
+> - `18e7fd1` - Correcciones fonéticas (deci → deisy)
+> - `01d4847` - Spanish Metaphone para matching robusto
+>
+> **Para actualizar**: Portainer → Stacks → sitnova → Pull & Redeploy
 
 ---
 
 ## En Qué Estamos
 
-**COMPLETADO** ✅: Sistema de monitoreo completo + Dashboard Admin + CI/CD configurado
+**EN PROGRESO** 🔄: Diagnóstico de issues en producción + Spanish Metaphone implementado
 
-### Sesión Actual: Monitoring & DevOps
+### Sesión Actual: V14 - Diagnóstico y Correcciones
 
-**Implementado en esta sesión**:
+**Issues Diagnosticados en esta sesión**:
 
-1. **Servicio de Monitoreo Backend** (Nuevo):
-   - Health checks centralizados para todos los servicios
-   - Sistema de alertas automático con niveles (info, warning, error, critical)
-   - Estadísticas de acceso en tiempo real
-   - API completa de monitoring
+1. **WhatsApp no se envía durante llamadas** 🔄
+   - **Diagnóstico**: Evolution API funciona correctamente (probado manualmente)
+   - **Causa Real**: Contenedor en Portainer tiene código viejo
+   - **Evidencia**: Logs muestran `'dese colorado' -> 'dc colorado'` (commit viejo)
+   - **Solución**: Redeploy manual en Portainer con commits recientes
 
-2. **Dashboard de Monitoreo Frontend** (Nuevo):
-   - Vista en tiempo real del estado del sistema
-   - Auto-refresh cada 30 segundos
-   - Tarjetas de estado por servicio (Base de Datos, Voice AI, Control de Acceso, WhatsApp, Agente IA)
-   - Panel de alertas con resolución manual
-   - Estadísticas de acceso del día
-   - Indicadores visuales de uptime y tasa de éxito
+2. **hangUp no funciona** ⚠️
+   - **Diagnóstico**: `hangUp` es tool BUILT-IN de AsterSIPVox, NO un endpoint HTTP
+   - **Causa**: No es problema del backend SITNOVA
+   - **Investigar**: Configuración de AsterSIPVox / FreePBX
+   - **Ver**: `docs/astersipvox-config.json` → `selectedTools`
 
-3. **CI/CD Completo** (Nuevo):
-   - GitHub Actions workflows configurados
-   - Tests automáticos en PRs
-   - Deploy automático a Vercel (frontend)
-   - Deploy automático a servidor via SSH (backend)
-   - Security scanning con Trivy
+3. **transfer_call no funciona** ⚠️
+   - **Diagnóstico**: `transfer_call` es tool BUILT-IN de AsterSIPVox
+   - **Parámetro**: `destination: "1002"` configurado en AsterSIPVox
+   - **Causa**: No es problema del backend SITNOVA
+   - **Investigar**: FreePBX routing, extensión 1002 existe y está registrada
 
-### Funcionalidades Previas (Sesión 4):
-1. **Hangup automático**: Libera recursos al finalizar conversaciones
-2. **Transfer a operador**: Transferencia inteligente por timeout o solicitud explícita
-3. **System prompts actualizados**: Instrucciones claras de cuándo colgar/transferir
-4. **Nuevos tools**: `colgar_llamada` y `transferir_operador`
-5. **Nuevos nodos**: `hangup_node` y `transfer_operator_node`
-6. **AsterSIPVox client extendido**: Métodos hangup, transfer y send_dtmf
+4. **Matching fonético fallando** ✅ RESUELTO
+   - **Problema**: "Deci Colorado" → "DC Colorado" (no encontraba "Deisy Colorado")
+   - **Solución V1**: Diccionario `PHONETIC_CORRECTIONS` (commit 18e7fd1)
+   - **Solución V2**: Spanish Metaphone algorithm (commit 01d4847)
+   - **Estado**: Código listo, pendiente de deploy
+
+**Implementado (pendiente deploy)**:
+
+1. **Spanish Metaphone Algorithm** (Nuevo - 180 líneas):
+   - Algoritmo fonético completo para español
+   - Reglas: B/V unificados, C+e/i→S, H muda, LL→Y, Ñ→NY, etc.
+   - Genera códigos fonéticos: "Deisy" → "TSY", "Deci" → "TSY" (match!)
+   - Archivo: `src/api/routes/tools.py`
+
+2. **Fuzzy Matching con 3 Estrategias**:
+   - ESTRATEGIA 1: Spanish Metaphone matching
+   - ESTRATEGIA 2: Variaciones fonéticas tradicionales
+   - ESTRATEGIA 3: Matching palabra por palabra
+   - Scoring combinado para mejor resultado
+
+3. **Función `phonetic_match_score()`**:
+   - Calcula similitud fonética entre dos nombres
+   - Considera coincidencia de palabras individuales
+   - Threshold configurable (default 0.6)
+
+**Verificaciones realizadas**:
+
+| Test | Resultado |
+|------|-----------|
+| Evolution API status | ✅ `state: "open"` |
+| Evolution send message | ✅ Message ID recibido |
+| Backend /buscar-residente | ✅ Encuentra "Deisy Colorado" |
+| Backend /notificar-residente | ✅ Retorna `enviado: true` |
+| AsterSIPVox tools | ⚠️ hangUp/transfer son built-in |
 
 ---
 
-## Estado Actual - Sesión 5: Monitoring & DevOps
+### Sesión Anterior: V13 - Optimización Conversacional
 
-### ✅ Archivos Nuevos Creados
+**Implementado en sesión anterior**:
 
-**Backend - Monitoring Service**:
-1. `/Users/mac/Documents/mis-proyectos/sitnova/src/services/monitoring/monitoring_service.py`
+1. **Búsqueda por Nombre de Residente**:
+   - El portero ahora acepta nombre del residente directamente
+   - No requiere que el visitante conozca el número de casa
+   - Usa `lookup_resident` con nombre O número
+   - Ejemplo: "Busco a DC Colorado" → busca y encuentra casa 15
+
+2. **Memoria Mejorada** (Crítico):
+   - Distingue claramente RESIDENTE_BUSCADO (persona que visita) vs NOMBRE_VISITANTE (quien es el visitante)
+   - No repite pregunta "a quién visita" si ya tiene el nombre
+   - Mantiene contexto durante toda la conversación
+   - Ejemplos de extracción documentados en el prompt
+
+3. **Pronunciación Clara de Cédulas** (UX):
+   - Confirma cédula dígito por dígito con pausas claras
+   - Formato: "uno... dos... tres..." (NO "ciento veintitrés")
+   - Fácil de corregir si hay error de transcripción
+   - Evita confusiones con números grandes
+
+4. **Correcciones Fonéticas** (STT Fix):
+   - Maneja errores comunes de Speech-to-Text
+   - Diccionario de correcciones: "dese"/"disi"/"dece" → "DC"
+   - Normaliza automáticamente antes de búsqueda
+   - Útil para nombres con iniciales
+
+5. **Manejo de "No sé el número de casa"** (Flujo):
+   - Nueva sección `<no_house_number>` en prompt
+   - Si visitante dice "no sé la casa" → usa nombre que ya mencionó
+   - Flujo paso a paso documentado
+   - Evita bloqueo de la conversación
+
+### Funcionalidades Previas:
+1. **Sesión 5**: Sistema de Monitoreo + Dashboard Admin (15 páginas) + CI/CD completo
+2. **Sesión 4**: Hangup automático + Transfer a operador + Gestión de recursos
+3. **Sesión 3**: FreePBX AMI + Evolution API (WhatsApp)
+4. **Sesión 2**: Servicio OCR + Cliente Hikvision
+5. **Sesión 1**: LangGraph Agent + Docker + Tools base
+
+---
+
+## Estado Actual - Sesión 6: V13 - Búsqueda Inteligente
+
+### ✅ Archivos Modificados en V13
+
+**System Prompt & Configuration**:
+1. `/Users/mac/Documents/mis-proyectos/sitnova/docs/astersipvox-config-v13.json`
    - `MonitoringService` class con health checks de todos los servicios
    - `check_supabase()` - Verifica base de datos
    - `check_astersipvox()` - Verifica Voice AI
@@ -142,14 +224,26 @@
 
 ---
 
-## Próximos Pasos (Deployment)
+## Próximos Pasos (Deployment V13)
 
 ### Listo para Deployment
-1. **AsterSIPVox** ✅ - System prompt YA actualizado con control de llamadas
-2. **Portainer** - Rebuild del backend para desplegar nuevos tools
+1. **AsterSIPVox** 🔄 - Actualizar configuración con `docs/astersipvox-config-v13.json`
+   - Copiar system prompt de V13
+   - Verificar tool `lookup_resident` acepta nombre O número
+   - Validar correcciones fonéticas en backend
+
+2. **Backend** ✅ - Ya tiene correcciones fonéticas implementadas
+   - Diccionario en `src/api/routes/tools.py`
+   - No requiere rebuild
+
+3. **Testing** 🔄 - Validar casos de uso V13:
+   - Búsqueda por nombre de residente
+   - Manejo de "no sé el número de casa"
+   - Confirmación de cédula con pausas
+   - Corrección fonética de iniciales
 
 ### Variables de Entorno Requeridas
-Ya configuradas en `.env.example`:
+Ya configuradas en `.env.example` (sin cambios en V13):
 - `OPERATOR_PHONE` - Número del operador para transferencias
 - `OPERATOR_TIMEOUT` - Tiempo de espera antes de transfer (default: 120s)
 - `ASTERSIPVOX_BASE_URL` - URL del servicio AsterSIPVox
@@ -207,7 +301,7 @@ validate_visitor → [usuario pide hablar con operador] → transfer_operator �
 
 ---
 
-## Estado del Proyecto - Actualizado
+## Estado del Proyecto - V14
 
 | Componente | Estado | Detalles |
 |------------|--------|----------|
@@ -215,11 +309,14 @@ validate_visitor → [usuario pide hablar con operador] → transfer_operator �
 | **Backend Nodos** | ✅ 9 nodos completos | Flujo completo con hangup/transfer |
 | **Backend Monitoring** | ✅ Implementado | Health checks + alertas + estadísticas |
 | **Frontend Dashboard** | ✅ 15 páginas completas | Admin completo + Monitoreo |
-| **Call Control** | ✅ Hangup y Transfer | Gestión de recursos de llamadas |
+| **Voice AI Prompts** | ✅ V13 Deployed | Búsqueda por nombre + Memoria mejorada + Cédula clara |
+| **Call Control** | ⚠️ Investigar AsterSIPVox | hangUp/transfer son built-in, no HTTP |
+| **Correcciones STT** | ✅ Spanish Metaphone | Algoritmo completo (pendiente deploy) |
+| **Evolution API** | ✅ Funcional | Probado manualmente, conexión OK |
 | **CI/CD** | ✅ Configurado | 3 workflows (CI + Deploy Frontend + Deploy Backend) |
-| **Documentación** | ✅ Sincronizada | PROGRESO.md + README.md actualizados |
+| **Documentación** | ✅ Sincronizada V14 | PROGRESO.md + README.md + ULTIMO-PROGRESO.md |
 | **Tests** | ✅ Backend + Frontend | Escenarios cubiertos + build checks |
-| **Deployment** | 🔄 Listo para deploy | Requiere configurar secrets de GitHub |
+| **Deployment Backend** | 🔴 PENDIENTE MANUAL | Commits 18e7fd1 + 01d4847 necesitan redeploy en Portainer |
 
 ---
 
@@ -244,22 +341,26 @@ validate_visitor → [usuario pide hablar con operador] → transfer_operator �
 
 ---
 
-## Características del Sistema de Monitoreo
+## Características de V13 - Búsqueda Inteligente
 
-**Backend (426 líneas)**:
-- Health checks asíncronos en paralelo
-- 5 servicios monitoreados (Supabase, AsterSIPVox, Hikvision, Evolution API, LangGraph)
-- Sistema de alertas con 4 niveles (info, warning, error, critical)
-- Estadísticas de acceso en tiempo real
-- API RESTful completa
+**System Prompt (215 líneas)**:
+- Sección `<memory_rules>`: Distingue RESIDENTE_BUSCADO vs NOMBRE_VISITANTE
+- Sección `<no_house_number>`: Manejo de "no sé el número de casa"
+- Sección `<cedula_confirmation>`: Pronunciación dígito por dígito con pausas
+- Sección `<step_by_step_capture>`: Una pregunta a la vez, flujo secuencial
+- Ejemplos conversacionales: 3 casos de uso completos
 
-**Frontend (297 líneas)**:
-- Dashboard visual con cards de estado
-- Auto-refresh cada 30 segundos
-- Indicadores de uptime y tasa de éxito
-- Grid de servicios con colores según estado
-- Panel de alertas con resolución manual
-- Estadísticas del día (total, autorizados, denegados, pendientes)
+**Correcciones Fonéticas**:
+- Diccionario en `tools.py`: "dese"/"disi"/"dece" → "DC"
+- Normalización automática antes de búsqueda
+- Útil para nombres con iniciales (ej: "DC Colorado")
+
+**Mejoras de UX**:
+- No obliga a conocer número de casa
+- Acepta nombre del residente como entrada válida
+- Evita preguntas repetitivas
+- Confirmación clara de cédula
+- Flujo conversacional natural
 
 ---
 
@@ -304,5 +405,41 @@ validate_visitor → [usuario pide hablar con operador] → transfer_operator �
 
 ---
 
-*Última sesión: 2025-12-06 (Sesión 5)*
-*Trabajo completado: Sistema de Monitoreo + Dashboard Admin Completo + CI/CD*
+---
+
+## Próximos Pasos URGENTES
+
+### 1. Redeploy Backend en Portainer 🔴
+```bash
+# En Portainer:
+# 1. Ir a Stacks → sitnova-backend
+# 2. Pull latest image from ghcr.io
+# 3. Redeploy container
+# 4. Verificar logs: docker logs -f sitnova-backend
+```
+
+### 2. Verificar hangUp y transfer_call ⚠️
+- **NO son endpoints HTTP** - son tools built-in de AsterSIPVox
+- Revisar configuración en AsterSIPVox Dashboard:
+  - Extension 1000 → Selected Tools → hangUp y transfer_call
+  - Verificar que transfer_call tiene `destination: "1002"`
+- Revisar en FreePBX:
+  - Extensión 1002 existe y está registrada
+  - Routing hacia 1002 funciona
+
+### 3. Test Post-Deploy
+Después de redeploy, probar:
+```bash
+# Test buscar residente con variación fonética
+curl -X POST https://api.sitnova.integratec-ia.com/tools/buscar-residente \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Deci Colorado", "condominium_id": "default-condo-id"}'
+
+# Esperado: Debe encontrar "Deisy Colorado" con Spanish Metaphone
+```
+
+---
+
+*Última sesión: 2025-12-08 (Sesión 7 - V14)*
+*Trabajo completado: Spanish Metaphone + Diagnóstico de issues + Documentación deploy manual*
+*Pendiente: Redeploy manual en Portainer + Investigar hangUp/transfer en AsterSIPVox*
