@@ -116,6 +116,30 @@ PHONETIC_CORRECTIONS = {
     "daysi": "deisy",
     "deisi": "deisy",
     "daisi": "deisy",
+    # Más variaciones de Deisy/Daisy (nombres muy comunes con muchas transcripciones)
+    "deysi": "deisy",
+    "deysy": "deisy",
+    "daysy": "deisy",
+    "deicy": "deisy",
+    "daicy": "deisy",
+    "deise": "deisy",
+    "daise": "deisy",
+    "deizi": "deisy",
+    "daizi": "deisy",
+    "deissy": "deisy",
+    "daissy": "deisy",
+    "deizy": "deisy",
+    "daizy": "deisy",
+    "daycy": "deisy",
+    "deycy": "deisy",
+    "deisie": "deisy",
+    "daisie": "deisy",
+    # Variaciones DC (iniciales muy usadas en Costa Rica)
+    "dece": "dc",
+    "dise": "dc",
+    "dece colorado": "dc colorado",
+    "daisy colorado": "deisy colorado",
+    "deysi colorado": "deisy colorado",
 }
 
 # Patrones de variación fonética bidireccional

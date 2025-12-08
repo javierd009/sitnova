@@ -193,11 +193,11 @@
     "selectedTools": [
       {
         "toolName": "hangUp",
-        "descriptionOverride": "OBLIGATORIO: Termina llamada. Usar INMEDIATAMENTE despues de abrir porton o denegar acceso."
+        "descriptionOverride": "CRITICO - TERMINA LA LLAMADA. Debes llamar esta herramienta INMEDIATAMENTE despues de: (1) abrir el porton exitosamente, (2) denegar acceso, (3) cualquier despedida. NUNCA dejes llamadas abiertas. Despues de decir 'Adelante buen dia' o 'Acceso denegado' DEBES llamar hangUp."
       },
       {
         "toolName": "transfer_call",
-        "descriptionOverride": "OBLIGATORIO: Transfiere a operador 1002. Usar SIN PREGUNTAR cuando residente no responde o hay problemas.",
+        "descriptionOverride": "CRITICO - TRANSFIERE AL OPERADOR HUMANO. Debes llamar esta herramienta cuando: (1) el residente no responde despues de 30 segundos, (2) no entiendes al visitante, (3) hay error tecnico, (4) el visitante pide operador. NO preguntes, simplemente di 'Le comunico con operador' y llama transfer_call.",
         "parameterOverrides": {
           "destination": "1002"
         }

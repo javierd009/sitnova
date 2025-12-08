@@ -238,15 +238,18 @@ class EvolutionClient:
         self,
         phone: str,
         message: str,
-        buttons: List[Dict[str, str]]
+        buttons: List[Dict[str, Any]],
+        footer: str = "Portería SITNOVA"
     ) -> Dict[str, Any]:
         """
-        Envía mensaje con botones interactivos.
+        Envía mensaje con botones interactivos (Evolution API v2).
 
         Args:
             phone: Número destino
             message: Texto del mensaje
-            buttons: Lista de botones [{"id": "1", "text": "Autorizar"}, ...]
+            buttons: Lista de botones en formato:
+                     [{"buttonId": "autorizar", "buttonText": {"displayText": "✅ Autorizar"}}, ...]
+            footer: Texto de pie del mensaje
 
         Returns:
             Dict con resultado
@@ -255,13 +258,27 @@ class EvolutionClient:
 
         clean_phone = phone.replace("+", "").replace(" ", "").replace("-", "")
 
+        # Formato Evolution API v2 - Interactive Buttons
+        # Ref: https://doc.evolution-api.com/v2/pt/messages/send-buttons
         payload = {
             "number": clean_phone,
-            "text": message,
-            "buttons": buttons
+            "title": "🚪 Visita en Portería",
+            "description": message,
+            "footer": footer,
+            "buttons": [
+                {
+                    "type": "reply",
+                    "reply": {
+                        "id": btn.get("buttonId", f"btn_{i}"),
+                        "title": btn.get("buttonText", {}).get("displayText", f"Opción {i+1}")
+                    }
+                }
+                for i, btn in enumerate(buttons)
+            ]
         }
 
         try:
+            # Intentar endpoint de Evolution API v2
             endpoint = f"/message/sendButtons/{self.config.instance_name}"
             result = self._request("POST", endpoint, json=payload)
 
@@ -272,10 +289,65 @@ class EvolutionClient:
                     "message_id": result.get("key", {}).get("id")
                 }
             else:
+                logger.warning(f"⚠️ Respuesta sin key: {result}")
                 return {"success": False, "error": str(result)}
 
         except Exception as e:
             logger.error(f"❌ Error enviando botones: {e}")
+            # Intentar fallback a texto con emojis si los botones fallan
+            return {"success": False, "error": str(e)}
+
+    def send_interactive_list(
+        self,
+        phone: str,
+        title: str,
+        description: str,
+        button_text: str,
+        sections: List[Dict[str, Any]],
+        footer: str = "Portería SITNOVA"
+    ) -> Dict[str, Any]:
+        """
+        Envía mensaje con lista interactiva (Evolution API v2).
+
+        Args:
+            phone: Número destino
+            title: Título del mensaje
+            description: Descripción/cuerpo del mensaje
+            button_text: Texto del botón que abre la lista
+            sections: Secciones de la lista
+            footer: Pie del mensaje
+
+        Returns:
+            Dict con resultado
+        """
+        logger.info(f"📋 Enviando lista interactiva a {phone}")
+
+        clean_phone = phone.replace("+", "").replace(" ", "").replace("-", "")
+
+        payload = {
+            "number": clean_phone,
+            "title": title,
+            "description": description,
+            "buttonText": button_text,
+            "footerText": footer,
+            "sections": sections
+        }
+
+        try:
+            endpoint = f"/message/sendList/{self.config.instance_name}"
+            result = self._request("POST", endpoint, json=payload)
+
+            if result.get("key"):
+                logger.success(f"✅ Lista interactiva enviada a {phone}")
+                return {
+                    "success": True,
+                    "message_id": result.get("key", {}).get("id")
+                }
+            else:
+                return {"success": False, "error": str(result)}
+
+        except Exception as e:
+            logger.error(f"❌ Error enviando lista: {e}")
             return {"success": False, "error": str(e)}
 
     def get_instance_status(self) -> Dict[str, Any]:
@@ -404,14 +476,32 @@ class MockEvolutionClient:
         self,
         phone: str,
         message: str,
-        buttons: List[Dict[str, str]]
+        buttons: List[Dict[str, Any]],
+        footer: str = "Portería SITNOVA"
     ) -> Dict[str, Any]:
         logger.success(f"🔧 Mock: Mensaje con {len(buttons)} botones enviado a {phone}")
         for btn in buttons:
-            logger.info(f"  🔘 {btn.get('text')}")
+            btn_text = btn.get("buttonText", {}).get("displayText", btn.get("text", "?"))
+            logger.info(f"  🔘 {btn_text}")
         return {
             "success": True,
             "message_id": "mock-buttons-123"
+        }
+
+    def send_interactive_list(
+        self,
+        phone: str,
+        title: str,
+        description: str,
+        button_text: str,
+        sections: List[Dict[str, Any]],
+        footer: str = "Portería SITNOVA"
+    ) -> Dict[str, Any]:
+        logger.success(f"🔧 Mock: Lista interactiva enviada a {phone}")
+        logger.info(f"  📋 {title}: {description[:50]}...")
+        return {
+            "success": True,
+            "message_id": "mock-list-123"
         }
 
     def get_instance_status(self) -> Dict[str, Any]:
