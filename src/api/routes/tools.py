@@ -80,6 +80,19 @@ PHONETIC_CORRECTIONS = {
     # Variaciones de nombres (normalizadas a forma común)
     "jhon": "john",
     "jon": "john",
+    # Variaciones de iniciales (STT puede transcribir letras de formas diferentes)
+    "dese": "dc",
+    "disi": "dc",
+    "dece": "dc",
+    "dice": "dc",
+    "de ce": "dc",
+    "de se": "dc",
+    "de si": "dc",
+    "dici": "dc",
+    "di ci": "dc",
+    "dce": "dc",
+    "decé": "dc",
+    "desé": "dc",
 }
 
 # Patrones de variación fonética bidireccional
@@ -241,8 +254,10 @@ def is_valid_name(name: str) -> bool:
 def extract_name_parts(full_text: str) -> Tuple[Optional[str], Optional[str]]:
     """
     Extrae nombre y apellido de un texto, filtrando ruido.
+    Aplica correcciones fonéticas para manejar errores de STT.
 
     Ejemplo: "Daisy de bicicletas Colorado" -> ("Daisy", "Colorado")
+    Ejemplo: "dese colorado" -> ("DC", "Colorado") (corrige STT de iniciales)
     """
     if not full_text:
         return None, None
@@ -252,7 +267,23 @@ def extract_name_parts(full_text: str) -> Tuple[Optional[str], Optional[str]]:
                    'carro', 'auto', 'vehiculo', 'moto', 'casa', 'apartamento'}
 
     words = full_text.strip().split()
-    clean_words = [w for w in words if w.lower() not in noise_words and is_valid_name(w)]
+
+    # Aplicar correcciones fonéticas a cada palabra y filtrar ruido
+    clean_words = []
+    for w in words:
+        if w.lower() in noise_words:
+            continue
+        if not is_valid_name(w):
+            continue
+        # Aplicar corrección fonética (ej: "dese" -> "dc")
+        corrected = get_phonetic_correction(w.lower())
+        # Mantener capitalización original si no hubo corrección
+        if corrected != w.lower():
+            clean_words.append(corrected.upper() if len(corrected) <= 2 else corrected.title())
+        else:
+            clean_words.append(w)
+
+    logger.debug(f"🔧 extract_name_parts: '{full_text}' -> clean_words={clean_words}")
 
     if len(clean_words) == 0:
         return None, None
