@@ -12,7 +12,7 @@ import {
   Settings,
   LogOut,
   Shield,
-  Bell,
+  Activity,
 } from 'lucide-react'
 
 const navigation = [
@@ -21,7 +21,7 @@ const navigation = [
   { name: 'Vehiculos', href: '/dashboard/vehicles', icon: Car },
   { name: 'Accesos', href: '/dashboard/access-logs', icon: ClipboardList },
   { name: 'Pre-autorizados', href: '/dashboard/pre-authorized', icon: Shield },
-  { name: 'Alertas', href: '/dashboard/alerts', icon: Bell },
+  { name: 'Monitoreo', href: '/dashboard/monitoring', icon: Activity },
   { name: 'Configuracion', href: '/dashboard/settings', icon: Settings },
 ]
 

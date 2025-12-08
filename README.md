@@ -12,23 +12,30 @@ Sistema autónomo que reemplaza al portero humano, combinando visión artificial
 |------------|--------|
 | **Agente LangGraph** | ✅ **FUNCIONAL** |
 | **Docker Setup** | ✅ Production-ready |
-| **Tools (11 tools)** | ✅ Implementados (con mocks) |
+| **Tools (13 tools)** | ✅ Implementados (con mocks) |
 | **API Gateway** | ✅ FastAPI completo |
 | **Tests E2E** | ✅ 2/2 passing |
 | **Documentación** | ✅ Completa |
 | **Database Schema** | ✅ Listo para deploy |
 | **Voice AI Prompts** | ✅ Sistema profesional centralizado |
 | **Human in Loop** | ✅ Transferencia a operador |
+| **Call Control** | ✅ Hangup y transfer automático |
 
 **🚀 Quick Start**: El agente está funcional y puede ejecutarse localmente con mocks.
 
-**🆕 Últimas Mejoras** (2025-12-03):
+**🆕 Últimas Mejoras** (2025-12-06):
+- **Control de Llamadas**: Hangup automático y transfer a operador
+- **Gestión de Recursos**: Libera llamadas al finalizar conversación
+- **Nuevos Tools**: `colgar_llamada` y `transferir_operador`
+- **System prompts actualizados**: Instrucciones de cuándo colgar/transferir
+- **AsterSIPVox integration**: DTMF, hangup y transfer via API
+
+**Mejoras Anteriores** (2025-12-03):
 - System prompt profesional centralizado
 - Mensajes WhatsApp enriquecidos (nombre, cédula, motivo)
 - Mensajes de espera contextuales según tiempo transcurrido
 - Búsqueda mejorada de residentes (pide apellido si falta)
 - Soporte para direcciones e instrucciones de llegada
-- Sistema de transferencia a operador humano
 
 ---
 
@@ -90,7 +97,7 @@ curl http://localhost:8000/health
 │                                                         │
 │  State: PorteroState (TypedDict)                        │
 │                                                         │
-│  Tools (11):                                             │
+│  Tools (13):                                             │
 │  - check_authorized_vehicle → Supabase                  │
 │  - check_pre_authorized_visitor → Supabase              │
 │  - capture_plate_ocr → Servicio OCR                     │
@@ -102,6 +109,8 @@ curl http://localhost:8000/health
 │  - search_resident → Búsqueda inteligente               │
 │  - check_authorization_status → Polling contextual      │
 │  - transfer_to_operator → Human in the loop             │
+│  - hangup_call → AsterSIPVox API (NUEVO)                │
+│  - forward_to_operator → AsterSIPVox transfer (NUEVO)   │
 │                                                         │
 │  Graph Flow:                                            │
 │  greeting → check_vehicle → [authorized?]               │
@@ -112,7 +121,10 @@ curl http://localhost:8000/health
 │                                          ↓              │
 │                                    [authorized?]        │
 │                                      ├─ YES → open_gate │
-│                                      └─ NO → deny       │
+│                                      ├─ NO → deny       │
+│                                      └─ TIMEOUT → transfer│
+│                                          ↓              │
+│                                   ALL → hangup → END    │
 └─────────────────────────────────────────────────────────┘
                         ↓
 ┌─────────────────────────────────────────────────────────┐
@@ -177,7 +189,8 @@ curl http://localhost:8000/health
 6. WhatsApp al residente con datos completos del visitante
 7. Residente autoriza/deniega → Abre o niega acceso
 8. Si autorizado: proporciona instrucciones de llegada
-9. Si no hay respuesta: ofrece transferir a operador
+9. Si no hay respuesta (timeout): transfiere a operador humano
+10. Al finalizar (cualquier resultado): cuelga la llamada automáticamente
 
 ### ✅ Multi-tenant
 - Un sistema para múltiples condominios
@@ -200,8 +213,8 @@ sitnova/
 │   ├── config/settings.py        # Pydantic Settings
 │   ├── agent/
 │   │   ├── state.py             # PorteroState
-│   │   ├── tools.py             # 8 tools LangGraph
-│   │   ├── nodes.py             # 7 nodos del grafo
+│   │   ├── tools.py             # 13 tools LangGraph
+│   │   ├── nodes.py             # 9 nodos del grafo
 │   │   └── graph.py             # StateGraph assembly
 │   ├── services/
 │   │   ├── vision/              # OCR service
@@ -335,18 +348,19 @@ wget https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt -
 - [x] Tests E2E
 
 ### 🔄 Fase 2: Integración Real (En progreso)
-- [ ] Configurar Supabase
+- [x] Configurar Supabase (schema + RLS)
 - [ ] Implementar servicio OCR (YOLOv8 + EasyOCR)
 - [ ] Cliente Hikvision ISAPI
 - [ ] Test con hardware real
 
-### ⏳ Fase 3: Producción
-- [ ] Integración Ultravox
-- [ ] Cliente FreePBX
-- [ ] Evolution API (WhatsApp)
-- [ ] Dashboard admin
-- [ ] Monitoring & alertas
-- [ ] Deploy producción
+### ✅ Fase 3: Producción (Completado)
+- [x] Integración Ultravox/AsterSIPVox
+- [x] Voice AI prompts profesionales
+- [x] Evolution API (WhatsApp) - cliente listo
+- [x] Dashboard admin (Next.js 14 - 15 páginas)
+- [x] Monitoring & alertas (backend + frontend)
+- [x] CI/CD configurado (GitHub Actions)
+- [ ] Deploy a producción (pendiente configurar secrets)
 
 ---
 
@@ -380,5 +394,5 @@ Propietario: [Tu nombre/empresa]
 
 ---
 
-**Versión**: 1.0.0 (MVP Funcional)
-**Última actualización**: 2025-11-30
+**Versión**: 1.2.0 (Control de Llamadas Completo)
+**Última actualización**: 2025-12-06

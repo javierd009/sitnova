@@ -1,0 +1,109 @@
+{
+  "fetched_at": "2025-12-06T22:13:57.033675",
+  "tables": {
+    "access_logs": {
+      "exists": true,
+      "sample_columns": [],
+      "row_count_sample": "0"
+    },
+    "condominiums": {
+      "exists": true,
+      "sample_columns": [
+        "id",
+        "name",
+        "address",
+        "timezone",
+        "logo_url",
+        "settings",
+        "is_active",
+        "created_at",
+        "updated_at",
+        "pbx_extension",
+        "evolution_api_url",
+        "evolution_api_key",
+        "evolution_instance_name",
+        "operator_extension",
+        "gate_api_endpoint",
+        "gate_api_key",
+        "slug"
+      ],
+      "row_count_sample": "1+"
+    },
+    "residents": {
+      "exists": true,
+      "sample_columns": [
+        "id",
+        "condominium_id",
+        "user_id",
+        "full_name",
+        "apartment",
+        "phone",
+        "phone_secondary",
+        "email",
+        "notification_preference",
+        "is_active",
+        "created_at",
+        "updated_at",
+        "address",
+        "address_instructions"
+      ],
+      "row_count_sample": "1+"
+    },
+    "vehicles": {
+      "exists": true,
+      "sample_columns": [],
+      "row_count_sample": "0"
+    },
+    "pre_authorized_visitors": {
+      "exists": true,
+      "sample_columns": [
+        "id",
+        "condominium_id",
+        "resident_id",
+        "visitor_name",
+        "cedula",
+        "license_plate",
+        "valid_from",
+        "valid_until",
+        "single_use",
+        "used",
+        "notes",
+        "created_at"
+      ],
+      "row_count_sample": "1+"
+    },
+    "visitor_registry": {
+      "exists": true,
+      "sample_columns": [],
+      "row_count_sample": "0"
+    },
+    "notifications": {
+      "exists": true,
+      "sample_columns": [],
+      "row_count_sample": "0"
+    },
+    "pending_authorizations": {
+      "exists": true,
+      "sample_columns": [
+        "id",
+        "phone",
+        "apartment",
+        "visitor_name",
+        "status",
+        "mensaje_personalizado",
+        "cedula",
+        "placa",
+        "created_at",
+        "responded_at",
+        "expires_at"
+      ],
+      "row_count_sample": "1+"
+    },
+    "access_events": {
+      "exists": false,
+      "error": "{'message': \"Could not find the table 'public.access_events' in the schema cache\", 'code': 'PGRST205', 'hint': \"Perhaps you meant the table 'public.access_logs'\", 'details': None}"
+    }
+  },
+  "views": [],
+  "functions": []
+}

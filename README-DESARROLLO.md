@@ -342,57 +342,106 @@ Verificar:
 
 ## 📝 Próximos Pasos
 
-1. [x] Implementar tools del agente
+### Completado ✅
+1. [x] Implementar tools del agente (13/13)
 2. [x] System prompt profesional centralizado
 3. [x] Mensajes WhatsApp enriquecidos
 4. [x] Mensajes de espera contextuales
 5. [x] Human in the loop (transferencia a operador)
-6. [ ] Completar servicio OCR
-7. [ ] Integrar Ultravox webhooks
-8. [ ] Cliente de Hikvision ISAPI
-9. [ ] Tests end-to-end completos
-10. [ ] Dashboard admin (frontend)
-11. [ ] Documentación de API (OpenAPI spec)
-12. [ ] CI/CD pipeline
+6. [x] Control de llamadas (hangup y transfer)
+7. [x] Servicio OCR completo
+8. [x] Cliente de Hikvision ISAPI
+9. [x] Cliente FreePBX AMI
+10. [x] Cliente Evolution API
+11. [x] Cliente AsterSIPVox
+
+### Pendiente 🔄
+1. [ ] Integración completa Ultravox (webhooks voice AI)
+2. [ ] Tests end-to-end completos con hardware real
+3. [ ] Dashboard admin (frontend React)
+4. [ ] Documentación de API (OpenAPI spec completo)
+5. [ ] CI/CD pipeline (GitHub Actions)
+6. [ ] Monitoring y alertas (Grafana/Prometheus)
+7. [ ] Configuración Supabase en producción
+8. [ ] SSL/TLS setup (NGINX + Let's Encrypt)
 
 ---
 
-## 🆕 Últimas Mejoras (2025-12-03)
+## 🆕 Últimas Mejoras
 
-### System Prompt Profesional
+### Sesión 4: Call Control y Resource Management (2025-12-06)
+
+#### Control Automático de Llamadas
+- **Hangup automático**: Libera recursos al finalizar conversaciones
+- **Transfer a operador**: Transferencia inteligente cuando hay timeout o solicitud explícita
+- **Gestión de estado**: Tracking completo de razones de hangup y transfer
+
+#### Nuevos Tools Implementados
+1. **`hangup_call`**: Cuelga llamada via AsterSIPVox API
+   - Parámetros: session_id, reason, call_id
+   - Libera canales SIP inmediatamente
+   - Registra razón de finalización
+
+2. **`forward_to_operator`**: Transfiere llamada a operador
+   - Parámetros: session_id, condominium_id, reason, visitor_name, apartment, visitor_cedula, call_id
+   - Tipos de transfer: blind o attended
+   - Notifica contexto completo al operador
+
+#### Nuevos Nodos del Grafo
+1. **`hangup_node`**: Finaliza llamadas limpiamente
+2. **`transfer_operator_node`**: Maneja transferencias a operador
+3. **`should_transfer_to_operator()`**: Routing condicional por timeout
+
+#### AsterSIPVox Client Actualizado
+Nuevos métodos agregados a `src/services/voice/astersipvox_client.py`:
+- `hangup(call_id, channel, reason)` - Colgar llamadas
+- `transfer(destination, call_id, channel, transfer_type)` - Transferir llamadas
+- `send_dtmf(digits, channel)` - Enviar tonos DTMF
+
+#### System Prompt Actualizado
+Nueva sección: **CALL CONTROL - CRITICAL FOR RESOURCE MANAGEMENT**
+- Instrucciones claras de cuándo colgar la llamada
+- Instrucciones de cuándo transferir a operador
+- Evita fugas de recursos y llamadas colgadas
+
+---
+
+### Sesión 3: System Prompts y WhatsApp (2025-12-03)
+
+#### System Prompt Profesional
 - **Archivo**: `src/services/voice/prompts.py`
 - Prompts centralizados para fácil mantenimiento
 - Define personalidad, flujo de conversación y reglas de seguridad
 - Utilizado por Ultravox y AsterSIPVox
 
-### Mensajes WhatsApp Enriquecidos
+#### Mensajes WhatsApp Enriquecidos
 - Incluye: nombre, cédula, motivo de visita, placa
 - Formato visual mejorado con emojis
 - Residente tiene toda la información para decidir
 
-### Mensajes de Espera Contextuales
+#### Mensajes de Espera Contextuales
 - Mensajes adaptativos según tiempo transcurrido:
   - < 15s: "Contactando al residente..."
   - 15-30s: "Revisando la solicitud..."
   - 30-60s: "Esperando respuesta..."
   - > 120s: "No hemos podido contactar..."
 
-### Búsqueda Mejorada de Residentes
+#### Búsqueda Mejorada de Residentes
 - Pide apellido si solo dan nombre
 - Pide número de casa si no encuentra por nombre
 - Respuestas guiadas para el agente
 
-### Direcciones e Instrucciones
+#### Direcciones e Instrucciones
 - Nuevos campos en tabla `residents`: `address`, `address_instructions`
 - Al autorizar acceso, se proporcionan instrucciones de llegada
 - Evita que visitantes se pierdan en el condominio
 
-### Human in the Loop
+#### Human in the Loop
 - Endpoint `/tools/transferir-operador`
 - Transfiere a operador humano cuando el sistema no puede resolver
 - Notifica al operador por WhatsApp con contexto completo
 
 ---
 
-**Versión**: 1.1.0
-**Última actualización**: 2025-12-03
+**Versión**: 1.2.0
+**Última actualización**: 2025-12-06

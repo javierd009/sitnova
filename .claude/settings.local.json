@@ -29,7 +29,13 @@
       "Bash(do echo \"=== Intento $i ===\")",
       "Bash(ls:*)",
       "Bash(for i in 1 2 3)",
-      "Bash(./diagnostico.sh:*)"
+      "Bash(./diagnostico.sh:*)",
+      "Bash(tree:*)",
+      "Bash(grep:*)",
+      "Bash(xargs ls:*)",
+      "Bash(wc:*)",
+      "Bash(pip install:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

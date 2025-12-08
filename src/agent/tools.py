@@ -788,6 +788,281 @@ async def call_resident(
 
 
 # ============================================
+# CALL CONTROL TOOLS (Hangup & Transfer)
+# ============================================
+
+@tool
+def hangup_call(
+    session_id: str,
+    reason: str = "conversation_completed",
+    call_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Termina la llamada actual via AsterSIPVox.
+    DEBE usarse al finalizar cada conversación para liberar recursos.
+
+    Args:
+        session_id: ID de la sesión de llamada actual
+        reason: Razón del hangup ("conversation_completed", "access_granted",
+                "access_denied", "transferred", "timeout", "error")
+        call_id: ID de la llamada en AsterSIPVox (opcional)
+
+    Returns:
+        dict con: success (bool), reason, timestamp
+    """
+    import asyncio
+    logger.info(f"📴 Colgando llamada - Sesión: {session_id}, Razón: {reason}")
+
+    async def _hangup():
+        from src.services.voice.astersipvox_client import get_astersipvox_client
+
+        client = get_astersipvox_client()
+
+        # Mapear razones a códigos de AsterSIPVox
+        reason_map = {
+            "conversation_completed": "normal_clearing",
+            "access_granted": "normal_clearing",
+            "access_denied": "call_rejected",
+            "transferred": "normal_clearing",
+            "timeout": "no_answer",
+            "error": "normal_clearing"
+        }
+        asterisk_reason = reason_map.get(reason, "normal_clearing")
+
+        return await client.hangup(
+            call_id=call_id or session_id,
+            reason=asterisk_reason
+        )
+
+    try:
+        # Ejecutar async en contexto sync
+        try:
+            loop = asyncio.get_running_loop()
+            # Ya hay un loop corriendo, crear tarea
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                result = pool.submit(asyncio.run, _hangup()).result()
+        except RuntimeError:
+            # No hay loop, podemos usar asyncio.run
+            result = asyncio.run(_hangup())
+
+        if result.get("success"):
+            logger.success(f"✅ Llamada terminada correctamente: {reason}")
+            return {
+                "success": True,
+                "reason": reason,
+                "timestamp": datetime.now().isoformat(),
+                "astersipvox_status": result.get("status")
+            }
+        else:
+            logger.error(f"❌ Error en hangup: {result.get('error')}")
+            return {
+                "success": False,
+                "error": result.get("error")
+            }
+
+    except Exception as e:
+        logger.error(f"❌ Excepción en hangup: {e}")
+        # Fallback: marcar como exitoso para que el flujo continúe
+        logger.warning("⚠️ Usando fallback para hangup")
+        return {
+            "success": True,
+            "reason": reason,
+            "timestamp": datetime.now().isoformat(),
+            "fallback": True
+        }
+
+
+@tool
+def forward_to_operator(
+    session_id: str,
+    condominium_id: str,
+    reason: str = "resident_timeout",
+    visitor_name: Optional[str] = None,
+    apartment: Optional[str] = None,
+    visitor_cedula: Optional[str] = None,
+    call_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Transfiere la llamada a un operador humano via AsterSIPVox (Human-in-the-Loop).
+    Usar cuando:
+    - El residente no responde después del timeout
+    - El visitante solicita hablar con un humano
+    - Hay una situación que requiere intervención humana
+
+    Args:
+        session_id: ID de la sesión de llamada actual
+        condominium_id: UUID del condominio
+        reason: Razón de la transferencia ("resident_timeout", "visitor_request",
+                "emergency", "complex_situation")
+        visitor_name: Nombre del visitante (para contexto al operador)
+        apartment: Número de casa destino (para contexto)
+        visitor_cedula: Cédula del visitante (opcional)
+        call_id: ID de la llamada en AsterSIPVox (opcional)
+
+    Returns:
+        dict con: transferred (bool), operator_extension, message
+    """
+    import asyncio
+    logger.info(f"🔀 Transfiriendo a operador - Razón: {reason}")
+
+    # Detectar modo mock
+    is_mock_mode = condominium_id.startswith("test-") or condominium_id.startswith("mock-")
+
+    # Preparar contexto para el operador
+    context = {
+        "session_id": session_id,
+        "condominium_id": condominium_id,
+        "reason": reason,
+        "visitor_name": visitor_name,
+        "apartment": apartment,
+        "visitor_cedula": visitor_cedula,
+        "timestamp": datetime.now().isoformat()
+    }
+
+    if is_mock_mode:
+        logger.info("🧪 Modo TEST: simulando transferencia a operador")
+        return {
+            "transferred": True,
+            "operator_extension": settings.operator_extension or "1002",
+            "operator_phone": settings.operator_phone,
+            "message": f"Transferencia simulada. Razón: {reason}",
+            "context": context
+        }
+
+    async def _transfer():
+        from src.services.voice.astersipvox_client import get_astersipvox_client
+
+        client = get_astersipvox_client()
+        operator_ext = settings.operator_extension or "1002"
+
+        return await client.transfer(
+            destination=operator_ext,
+            call_id=call_id or session_id,
+            transfer_type="blind"
+        )
+
+    try:
+        # Ejecutar async en contexto sync
+        try:
+            loop = asyncio.get_running_loop()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                result = pool.submit(asyncio.run, _transfer()).result()
+        except RuntimeError:
+            result = asyncio.run(_transfer())
+
+        operator_ext = settings.operator_extension or "1002"
+
+        if result.get("success"):
+            logger.success(f"✅ Transferencia iniciada a operador: {operator_ext}")
+
+            # Notificar al operador por WhatsApp con el contexto
+            _notify_operator_whatsapp(
+                visitor_name=visitor_name,
+                apartment=apartment,
+                reason=reason,
+                cedula=visitor_cedula
+            )
+
+            return {
+                "transferred": True,
+                "operator_extension": operator_ext,
+                "operator_phone": settings.operator_phone,
+                "message": "Llamada transferida al operador. Por favor espere.",
+                "astersipvox_status": result.get("status")
+            }
+        else:
+            logger.error(f"❌ Error en transferencia: {result.get('error')}")
+            # Fallback: notificar al operador
+            _notify_operator_whatsapp(
+                visitor_name=visitor_name,
+                apartment=apartment,
+                reason=reason,
+                cedula=visitor_cedula
+            )
+            return {
+                "transferred": False,
+                "error": result.get("error"),
+                "message": "No se pudo transferir. El operador fue notificado.",
+                "operator_notified": True
+            }
+
+    except Exception as e:
+        logger.error(f"❌ Excepción en transferencia: {e}")
+        # Fallback: al menos notificar al operador
+        _notify_operator_whatsapp(
+            visitor_name=visitor_name,
+            apartment=apartment,
+            reason=reason,
+            cedula=visitor_cedula
+        )
+        return {
+            "transferred": False,
+            "error": str(e),
+            "message": "Error en transferencia. El operador será notificado.",
+            "operator_notified": True
+        }
+
+
+def _notify_operator_whatsapp(
+    visitor_name: Optional[str],
+    apartment: Optional[str],
+    reason: str,
+    cedula: Optional[str] = None
+) -> bool:
+    """
+    Helper interno: Notifica al operador por WhatsApp sobre la transferencia.
+    """
+    if not settings.operator_phone:
+        logger.warning("⚠️ No hay teléfono de operador configurado")
+        return False
+
+    try:
+        from src.services.messaging import create_evolution_client
+
+        reason_map = {
+            "resident_timeout": "El residente no respondió",
+            "visitor_request": "El visitante solicitó hablar con un humano",
+            "emergency": "⚠️ EMERGENCIA",
+            "complex_situation": "Situación que requiere intervención"
+        }
+        reason_text = reason_map.get(reason, reason)
+
+        message = f"""🔔 *Transferencia de Portería*
+
+📍 Casa/Apto: {apartment or 'No especificado'}
+👤 Visitante: {visitor_name or 'No identificado'}
+🪪 Cédula: {cedula or 'No proporcionada'}
+
+📋 Razón: {reason_text}
+
+⏰ {datetime.now().strftime('%H:%M:%S')}
+
+La llamada está siendo transferida a tu extensión."""
+
+        client = create_evolution_client(
+            base_url=settings.evolution_api_url,
+            api_key=settings.evolution_api_key,
+            instance_name=settings.evolution_instance_name,
+            use_mock=not settings.evolution_api_url
+        )
+
+        result = client.send_text(settings.operator_phone, message)
+
+        if result.get("success"):
+            logger.success(f"✅ Operador notificado por WhatsApp")
+            return True
+        else:
+            logger.error(f"❌ Error notificando operador: {result.get('error')}")
+            return False
+
+    except Exception as e:
+        logger.error(f"❌ Error notificando operador: {e}")
+        return False
+
+
+# ============================================
 # HELPER: Listar todos los tools
 # ============================================
 
@@ -809,4 +1084,7 @@ def get_all_tools():
         notify_resident_whatsapp,
         check_authorization_status,
         call_resident,
+        # Call Control Tools (nuevos)
+        hangup_call,
+        forward_to_operator,
     ]

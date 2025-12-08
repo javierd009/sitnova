@@ -21,6 +21,8 @@ class VisitStep(str, Enum):
     ESPERANDO_AUTORIZACION = "esperando_autorizacion"
     ACCESO_OTORGADO = "acceso_otorgado"
     ACCESO_DENEGADO = "acceso_denegado"
+    TRANSFIRIENDO_OPERADOR = "transfiriendo_operador"  # Human-in-the-loop
+    FINALIZADO = "finalizado"  # Llamada terminada
     TIMEOUT = "timeout"
     ERROR = "error"
 
@@ -138,6 +140,26 @@ class PorteroState(BaseModel):
     # Ultravox call tracking
     call_sid: Optional[str] = Field(default=None, description="SID de la llamada de Ultravox")
     call_active: bool = Field(default=False, description="¿Llamada activa?")
+
+    # ============================================
+    # TRANSFER & HANGUP CONTROL
+    # ============================================
+    notification_sent_at: Optional[datetime] = Field(
+        default=None,
+        description="Timestamp cuando se envió la notificación al residente"
+    )
+    transfer_reason: Optional[str] = Field(
+        default=None,
+        description="Razón de la transferencia a operador"
+    )
+    visitor_requested_operator: bool = Field(
+        default=False,
+        description="¿El visitante solicitó hablar con un operador?"
+    )
+    hangup_reason: Optional[str] = Field(
+        default=None,
+        description="Razón por la que se colgó la llamada"
+    )
 
     class Config:
         arbitrary_types_allowed = True

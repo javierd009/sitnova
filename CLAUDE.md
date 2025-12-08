@@ -1,15 +1,168 @@
-# Proyecto: [NOMBRE_DEL_PROYECTO]
+# Proyecto: SITNOVA - Sistema Inteligente de Control de Acceso
 
 ## 🎯 Principios de Desarrollo (Context Engineering)
 
 ### Design Philosophy
 - **KISS**: Keep It Simple, Stupid - Prefiere soluciones simples
-- **YAGNI**: You Aren't Gonna Need It - Implementa solo lo necesario  
+- **YAGNI**: You Aren't Gonna Need It - Implementa solo lo necesario
 - **DRY**: Don't Repeat Yourself - Evita duplicación de código
 - **SOLID**: Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion
 
 ### Descripción del Proyecto
-[Breve descripción de qué hace tu proyecto y sus características principales]
+**Portero Virtual con IA** para condominios residenciales en Costa Rica. Sistema autónomo que combina visión artificial (OCR de placas y cédulas), procesamiento de lenguaje natural por voz, y control de acceso inteligente mediante LangGraph.
+
+---
+
+## 🏢 SITNOVA Infrastructure Stack (CRÍTICO)
+
+> **IMPORTANTE**: Esta sección documenta la infraestructura del proyecto. Debe ser leída en cada nueva sesión para entender el contexto completo.
+
+### Arquitectura de Deployment
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    SITNOVA INFRASTRUCTURE                           │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌─────────────┐    ┌─────────────────────────────────────────┐    │
+│  │   VERCEL    │    │         DOCKER (Portainer)              │    │
+│  │  Frontend   │    │  ┌─────────────┐ ┌─────────────────┐   │    │
+│  │  Next.js    │◄──►│  │ FastAPI     │ │ AsterSIPVox     │   │    │
+│  │  Dashboard  │    │  │ Backend     │ │ (Voice Bridge)  │   │    │
+│  └─────────────┘    │  │ Port 8000   │ │ Port 3001       │   │    │
+│                     │  └─────────────┘ └─────────────────┘   │    │
+│                     └─────────────────────────────────────────┘    │
+│                                    │                               │
+│                                    ▼                               │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │                    SUPABASE (Cloud)                          │  │
+│  │   PostgreSQL + Auth + Storage + Realtime                     │  │
+│  │   URL: lgqeeumflbzzmqysqkiq.supabase.co                      │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Componentes del Stack
+
+| Componente | Función | Ubicación |
+|------------|---------|-----------|
+| **Vercel** | Frontend Next.js (Dashboard admin) | Cloud |
+| **Docker/Portainer** | Orquestación de contenedores | VPS |
+| **FastAPI Backend** | API Gateway (Python 3.11+) | Docker container |
+| **LangGraph** | Orquestador de flujos del agente IA | Backend (StateGraph) |
+| **AsterSIPVox** | Bridge Voice AI ↔ FreePBX | Docker container |
+| **Supabase** | PostgreSQL + Auth + Storage | Cloud |
+| **FreePBX** | PBX para llamadas telefónicas | VPS/Hardware |
+| **Hikvision** | Control de puertas + Cámaras | Hardware local |
+
+### LangGraph - Orquestador del Agente (CRÍTICO)
+
+LangGraph es el **cerebro del portero virtual**. Define el flujo de decisiones mediante un StateGraph:
+
+```
+START → greeting → check_vehicle
+                        ├→ authorized? → open_gate → log_access → hangup → END
+                        └→ not_authorized → validate_visitor
+                                                ├→ pre_authorized? → open_gate → ...
+                                                └→ notify_resident
+                                                        ├→ authorized? → open_gate → ...
+                                                        ├→ denied? → deny_access → ...
+                                                        └→ timeout? → transfer_operator → hangup → END
+```
+
+**Archivos clave**:
+- `src/agent/state.py` - PorteroState (TypedDict con todos los campos)
+- `src/agent/tools.py` - 13 tools (OCR, gate control, notifications, call control)
+- `src/agent/nodes.py` - Nodos del grafo (greeting, check_vehicle, etc.)
+- `src/agent/graph.py` - Definición del StateGraph y routing functions
+
+---
+
+## 📞 AsterSIPVox - Voice AI Bridge (CRÍTICO)
+
+> **DOCUMENTACIÓN COMPLETA**: Ver [docs/ASTERSIPVOX.md](docs/ASTERSIPVOX.md)
+> **CONFIGURACIÓN ACTUAL**: Ver [docs/astersipvox-config.json](docs/astersipvox-config.json)
+
+### ¿Qué es AsterSIPVox?
+
+AsterSIPVox es el **puente entre Ultravox (Voice AI) y FreePBX (PBX SIP)**. Permite que el agente de voz:
+- Reciba llamadas telefónicas de residentes/visitantes
+- Procese voz con IA (Ultravox)
+- Ejecute herramientas (tools) vía HTTP hacia el backend SITNOVA
+- Controle la llamada (colgar, transferir, DTMF)
+
+### Arquitectura de Llamadas
+
+```
+Visitante → Fanvil i10 → FreePBX → AsterSIPVox → Ultravox
+                                        ↓
+                                   HTTP Tools
+                                        ↓
+                              FastAPI Backend (SITNOVA)
+                                        ↓
+                              Supabase / Hikvision / WhatsApp
+```
+
+### Tools Configurados en AsterSIPVox
+
+#### Built-in Tools (Control de Llamada)
+| Tool | Función | Uso |
+|------|---------|-----|
+| `hangUp` | Termina la llamada | Cuando finaliza la conversación |
+| `transfer_call` | Transfiere a otra extensión | Human-in-the-loop |
+| `play_dtmf` | Envía tonos DTMF | Interacción con IVR |
+
+#### Custom HTTP Tools (Negocio)
+| Tool | Endpoint | Función |
+|------|----------|---------|
+| `lookup_resident` | POST /api/v1/voice/lookup-resident | Busca residente por nombre/apellido |
+| `notificar_residente` | POST /api/v1/voice/notify-resident | Envía WhatsApp al residente |
+| `estado_autorizacion` | POST /api/v1/voice/authorization-status | Consulta si residente autorizó |
+| `obtener_direccion` | POST /api/v1/voice/get-directions | Obtiene instrucciones de llegada |
+| `abrir_porton` | POST /api/v1/voice/open-gate | Abre el portón |
+
+### System Prompt del Agente de Voz
+
+El system prompt está configurado directamente en AsterSIPVox y define:
+- Personalidad del portero virtual
+- Flujo de conversación
+- Cuándo usar cada tool
+- Manejo de esperas y timeouts
+- Soporte multiidioma (ES/EN)
+
+**Ubicación**: Dashboard AsterSIPVox → Extensiones → [Extensión] → System Prompt
+
+### Endpoints del Backend que AsterSIPVox Consume
+
+```
+POST /api/v1/voice/lookup-resident
+POST /api/v1/voice/notify-resident
+POST /api/v1/voice/authorization-status
+POST /api/v1/voice/get-directions
+POST /api/v1/voice/open-gate
+```
+
+### Modificar Comportamiento del Agente de Voz
+
+1. **Tools**: Se configuran en AsterSIPVox Dashboard → Extensiones → Extra Tools
+2. **Prompts**: Se configuran en AsterSIPVox Dashboard → Extensiones → System Prompt
+3. **Endpoints**: Se implementan en `src/api/routes/voice.py`
+
+### Referencia Rápida AsterSIPVox API
+
+```bash
+# Health check
+curl https://astersipvox.example.com/health
+
+# Ver extensiones
+curl https://astersipvox.example.com/extensions
+
+# Iniciar llamada
+curl -X POST https://astersipvox.example.com/call \
+  -H "Content-Type: application/json" \
+  -d '{"extension": "portero", "destination": "1001"}'
+```
 
 ## 🏗️ Tech Stack & Architecture
 
@@ -263,28 +416,54 @@ test('should calculate total with tax', () => {
 - Cache repeated queries
 
 ### Database Migrations (CRÍTICO)
-**SIEMPRE antes de crear una migración:**
 
-1. **Obtener schema de producción** - Ejecutar `scripts/get_schema.sql` en Supabase SQL Editor
-2. **Analizar columnas existentes** - No asumir que el schema local es igual al de producción
-3. **Usar IF NOT EXISTS** - Para columnas, índices, constraints
-4. **Hacer JOINs por columnas que existen** - Verificar antes de usar foreign keys
-5. **Incluir verificación al final** - Confirmar que la migración se aplicó correctamente
+#### Protocolo Obligatorio - SIEMPRE seguir estos pasos:
 
 ```bash
-# Antes de migrar, pedir al usuario que ejecute:
-scripts/get_schema.sql
+# PASO 1: Obtener schema actual (OBLIGATORIO antes de cualquier cambio)
+source venv/bin/activate && python scripts/fetch_schema.py
 
-# El usuario te dará el output con:
-# - Tablas existentes
-# - Columnas por tabla
-# - Vistas, índices, constraints
+# PASO 2: Leer el schema generado
+cat data/current_schema.txt
+# o para JSON completo:
+cat data/current_schema.json
 ```
 
-**Errores comunes a evitar:**
+#### Schema Actual de SITNOVA (Supabase)
+
+| Tabla | Columnas Principales |
+|-------|---------------------|
+| `condominiums` | id, name, slug, address, timezone, settings, is_active, pbx_extension, evolution_api_url, evolution_api_key, evolution_instance_name, operator_extension, gate_api_endpoint, gate_api_key |
+| `residents` | id, condominium_id, user_id, full_name, apartment, phone, phone_secondary, email, notification_preference, is_active, address, address_instructions |
+| `vehicles` | id, condominium_id, resident_id, license_plate, brand, model, color, is_active |
+| `pre_authorized_visitors` | id, condominium_id, resident_id, visitor_name, cedula, license_plate, valid_from, valid_until, single_use, used, notes |
+| `pending_authorizations` | id, phone, apartment, visitor_name, status, mensaje_personalizado, cedula, placa, created_at, responded_at, expires_at |
+| `access_logs` | id, condominium_id, event_type, license_plate, visitor_name, cedula, authorized_by, timestamp, photo_url, notes |
+| `visitor_registry` | id, condominium_id, visitor_name, cedula, license_plate, resident_id, access_type, entry_time, exit_time |
+| `notifications` | id, condominium_id, resident_id, type, title, body, status, sent_at, read_at |
+
+#### Reglas de Migración
+
+1. **SIEMPRE ejecutar `python scripts/fetch_schema.py`** antes de cualquier cambio
+2. **Usar IF NOT EXISTS** para columnas, índices, constraints
+3. **Verificar columnas antes de JOINs** - no asumir que existen
+4. **Validar al final** - confirmar que la migración se aplicó
+
+#### Errores Comunes a Evitar
+
 - ❌ Asumir que `vehicle_id` existe → usar `license_plate` para JOIN
 - ❌ Asumir que `timestamp` existe → puede ser `created_at`
 - ❌ No verificar schema antes de migrar
+- ❌ Crear tablas sin verificar si ya existen
+- ❌ Modificar columnas sin conocer su tipo actual
+
+#### Script de Introspección Avanzado (Opcional)
+
+Para obtener tipos de datos completos, ejecutar UNA VEZ en Supabase SQL Editor:
+```sql
+-- Ver: database/migrations/001_schema_introspection.sql
+-- Esto habilita: SELECT get_full_schema();
+```
 
 ## 🔄 Git Workflow & Repository Rules
 
@@ -337,10 +516,17 @@ docs(readme): update installation steps
 - Ver @.claude/docs/ para workflows y documentación
 - Ver @.mcp.json.examples para MCPs disponibles
 
+### SITNOVA-Specific Documentation (CRÍTICO)
+- Ver @docs/ASTERSIPVOX.md para documentación completa de Voice AI Bridge
+- Ver @docs/astersipvox-config.json para configuración actual de la extensión
+- Ver @database/SUPABASE-SETUP.md para setup de base de datos
+- Ver @src/services/voice/prompts.py para system prompts del agente
+
 ### External Dependencies
 - Documentación oficial de frameworks
 - Best practices guides
 - Security guidelines (OWASP)
+- [AsterSIPVox](https://astersipvox.com) - Voice AI Bridge documentation
 
 ## 🤖 AI Assistant Guidelines
 

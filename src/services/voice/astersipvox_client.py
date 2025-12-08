@@ -212,6 +212,172 @@ class AsterSIPVoxClient:
 
             return response.json()
 
+    async def hangup(
+        self,
+        call_id: Optional[str] = None,
+        channel: Optional[str] = None,
+        reason: str = "normal_clearing"
+    ) -> Dict[str, Any]:
+        """
+        Cuelga la llamada activa.
+
+        CRÍTICO: Usar para liberar recursos y evitar consumo de tokens/minutos.
+
+        Args:
+            call_id: ID de la llamada (si se tiene)
+            channel: Canal de Asterisk (ej: "SIP/205-00000001")
+            reason: Razón del hangup ("normal_clearing", "user_busy", "call_rejected")
+
+        Returns:
+            dict con resultado del hangup
+        """
+        payload = {
+            "reason": reason,
+        }
+
+        if call_id:
+            payload["call_id"] = call_id
+        if channel:
+            payload["channel"] = channel
+
+        logger.info(f"📴 Colgando llamada: {call_id or channel or 'current'}")
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/hangup",
+                    headers=self.headers,
+                    json=payload,
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    logger.success(f"✅ Llamada colgada: {data.get('status', 'ok')}")
+                    return {
+                        "success": True,
+                        "status": data.get("status", "hangup_complete"),
+                        "reason": reason,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                else:
+                    logger.error(f"❌ Error colgando llamada: {response.status_code}")
+                    return {
+                        "success": False,
+                        "error": response.text,
+                        "status_code": response.status_code
+                    }
+
+        except Exception as e:
+            logger.error(f"❌ Excepción en hangup: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    async def transfer(
+        self,
+        destination: str,
+        call_id: Optional[str] = None,
+        channel: Optional[str] = None,
+        transfer_type: str = "blind"  # "blind" o "attended"
+    ) -> Dict[str, Any]:
+        """
+        Transfiere la llamada activa a otra extensión (Human-in-the-Loop).
+
+        Args:
+            destination: Extensión destino (ej: "1002" para el operador)
+            call_id: ID de la llamada (si se tiene)
+            channel: Canal de Asterisk
+            transfer_type: Tipo de transferencia:
+                - "blind": Transferencia ciega (el visitante espera mientras conecta)
+                - "attended": Transferencia atendida (el operador puede aceptar/rechazar)
+
+        Returns:
+            dict con resultado de la transferencia
+        """
+        payload = {
+            "destination": destination,
+            "transfer_type": transfer_type,
+        }
+
+        if call_id:
+            payload["call_id"] = call_id
+        if channel:
+            payload["channel"] = channel
+
+        logger.info(f"🔀 Transfiriendo llamada a: {destination} (tipo: {transfer_type})")
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/transfer",
+                    headers=self.headers,
+                    json=payload,
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    logger.success(f"✅ Llamada transferida a: {destination}")
+                    return {
+                        "success": True,
+                        "transferred": True,
+                        "destination": destination,
+                        "status": data.get("status", "transfer_complete"),
+                        "timestamp": datetime.now().isoformat()
+                    }
+                else:
+                    logger.error(f"❌ Error transfiriendo: {response.status_code}")
+                    return {
+                        "success": False,
+                        "transferred": False,
+                        "error": response.text,
+                        "status_code": response.status_code
+                    }
+
+        except Exception as e:
+            logger.error(f"❌ Excepción en transfer: {e}")
+            return {
+                "success": False,
+                "transferred": False,
+                "error": str(e)
+            }
+
+    async def send_dtmf(self, digits: str, channel: Optional[str] = None) -> bool:
+        """
+        Envía tonos DTMF al canal de la llamada.
+
+        Útil para navegación de menús IVR o señalización.
+
+        Args:
+            digits: Dígitos a enviar (ej: "1", "123#")
+            channel: Canal de Asterisk (opcional)
+
+        Returns:
+            True si se enviaron correctamente
+        """
+        payload = {
+            "digits": digits,
+        }
+
+        if channel:
+            payload["channel"] = channel
+
+        logger.debug(f"📞 Enviando DTMF: {digits}")
+
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/dtmf",
+                    headers=self.headers,
+                    json=payload,
+                )
+
+                return response.status_code == 200
+
+        except Exception as e:
+            logger.error(f"❌ Error enviando DTMF: {e}")
+            return False
+
     def _build_call_prompt(
         self,
         visitor_context: Optional[Dict[str, Any]] = None,

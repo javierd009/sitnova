@@ -17,6 +17,9 @@ from src.agent.nodes import (
     open_gate_node,
     log_access_node,
     deny_access_node,
+    hangup_node,
+    transfer_operator_node,
+    should_transfer_to_operator,
 )
 from src.config.settings import settings
 
@@ -62,20 +65,49 @@ def route_after_visitor_validation(state: PorteroState) -> Literal["open_gate", 
     return "deny_access"
 
 
-def route_after_resident_response(state: PorteroState) -> Literal["open_gate", "deny_access"]:
+def route_after_resident_response(state: PorteroState) -> Literal["open_gate", "deny_access", "transfer_operator"]:
     """
     Decide según la respuesta del residente.
 
     Returns:
         "open_gate" si autorizó
-        "deny_access" si denegó o no respondió
+        "deny_access" si denegó
+        "transfer_operator" si hay timeout o el visitante lo solicitó
     """
-    if state.resident_authorized:
+    # Primero verificar si hay timeout o solicitud de transferencia
+    if should_transfer_to_operator(state):
+        logger.info("→ Routing: Timeout/Solicitud → transfer_operator")
+        return "transfer_operator"
+
+    if state.resident_authorized is True:
         logger.info("→ Routing: Residente autorizó → open_gate")
         return "open_gate"
 
-    logger.warning("→ Routing: Residente no autorizó → deny_access")
+    if state.resident_authorized is False:
+        logger.warning("→ Routing: Residente denegó → deny_access")
+        return "deny_access"
+
+    # Si aún no hay respuesta clara, default a deny
+    logger.warning("→ Routing: Sin respuesta clara → deny_access")
     return "deny_access"
+
+
+def route_after_log_access(state: PorteroState) -> Literal["hangup", "transfer_operator"]:
+    """
+    Decide si colgar la llamada o transferir después de registrar el acceso.
+
+    Returns:
+        "hangup" para terminar la llamada normalmente
+        "transfer_operator" si se necesita intervención humana
+    """
+    # Si ya se está transfiriendo, ir a transfer
+    if state.current_step == VisitStep.TRANSFIRIENDO_OPERADOR:
+        logger.info("→ Routing: Ya transfiriendo → transfer_operator")
+        return "transfer_operator"
+
+    # Por defecto, colgar la llamada
+    logger.info("→ Routing: Log completo → hangup")
+    return "hangup"
 
 
 # ============================================
@@ -88,12 +120,17 @@ def create_sitnova_graph() -> StateGraph:
 
     Flow:
     START → greeting → check_vehicle
-                            ├→ authorized? → open_gate → log_access → END
+                            ├→ authorized? → open_gate → log_access → hangup → END
                             └→ not_authorized → validate_visitor
-                                                    ├→ pre_authorized? → open_gate → log_access → END
+                                                    ├→ pre_authorized? → open_gate → log_access → hangup → END
                                                     └→ not_pre_authorized → notify_resident
-                                                                                ├→ authorized? → open_gate → log_access → END
-                                                                                └→ denied? → deny_access → log_access → END
+                                                                                ├→ authorized? → open_gate → log_access → hangup → END
+                                                                                ├→ denied? → deny_access → log_access → hangup → END
+                                                                                └→ timeout? → transfer_operator → hangup → END
+
+    IMPORTANTE: Todos los flujos terminan en hangup para:
+    - Liberar recursos de la llamada
+    - Evitar consumo innecesario de tokens/minutos
 
     Returns:
         StateGraph compilado listo para ejecutar
@@ -113,6 +150,9 @@ def create_sitnova_graph() -> StateGraph:
     workflow.add_node("open_gate", open_gate_node)
     workflow.add_node("log_access", log_access_node)
     workflow.add_node("deny_access", deny_access_node)
+    # Nuevos nodos para call control
+    workflow.add_node("hangup", hangup_node)
+    workflow.add_node("transfer_operator", transfer_operator_node)
 
     # ============================================
     # CONFIGURAR ENTRY POINT
@@ -147,13 +187,14 @@ def create_sitnova_graph() -> StateGraph:
         }
     )
 
-    # notify_resident → conditional (autorizado o denegado)
+    # notify_resident → conditional (autorizado, denegado, o transferir)
     workflow.add_conditional_edges(
         "notify_resident",
         route_after_resident_response,
         {
             "open_gate": "open_gate",
-            "deny_access": "deny_access"
+            "deny_access": "deny_access",
+            "transfer_operator": "transfer_operator"
         }
     )
 
@@ -163,10 +204,16 @@ def create_sitnova_graph() -> StateGraph:
     # deny_access → log_access
     workflow.add_edge("deny_access", "log_access")
 
-    # log_access → END
-    workflow.add_edge("log_access", END)
+    # transfer_operator → hangup (después de transferir, terminamos nuestra parte)
+    workflow.add_edge("transfer_operator", "hangup")
 
-    logger.success("✅ Grafo creado exitosamente")
+    # log_access → hangup (CRÍTICO: siempre colgar después de loguear)
+    workflow.add_edge("log_access", "hangup")
+
+    # hangup → END (finalización limpia)
+    workflow.add_edge("hangup", END)
+
+    logger.success("✅ Grafo creado exitosamente (con hangup y transfer)")
 
     return workflow
 

@@ -1,0 +1,32 @@
+============================================================
+SCHEMA DE BASE DE DATOS - SITNOVA
+Obtenido: 2025-12-06T22:13:57.033675
+============================================================
+
+📊 TABLAS
+----------------------------------------
+
+✅ access_logs (tabla vacía)
+
+✅ condominiums
+   Columnas: id, name, address, timezone, logo_url, settings, is_active, created_at, updated_at, pbx_extension, evolution_api_url, evolution_api_key, evolution_instance_name, operator_extension, gate_api_endpoint, gate_api_key, slug
+
+✅ residents
+   Columnas: id, condominium_id, user_id, full_name, apartment, phone, phone_secondary, email, notification_preference, is_active, created_at, updated_at, address, address_instructions
+
+✅ vehicles (tabla vacía)
+
+✅ pre_authorized_visitors
+   Columnas: id, condominium_id, resident_id, visitor_name, cedula, license_plate, valid_from, valid_until, single_use, used, notes, created_at
+
+✅ visitor_registry (tabla vacía)
+
+✅ notifications (tabla vacía)
+
+✅ pending_authorizations
+   Columnas: id, phone, apartment, visitor_name, status, mensaje_personalizado, cedula, placa, created_at, responded_at, expires_at
+
+❌ access_events - NO EXISTE
+   Error: {'message': "Could not find the table 'public.access_events' in the schema cache", 'code': 'PGRST205', 'hint': "Perhaps you meant the table 'public.access_logs'", 'details': None}
+
+============================================================

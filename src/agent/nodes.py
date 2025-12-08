@@ -15,6 +15,8 @@ from src.agent.tools import (
     open_gate,
     log_access_event,
     notify_resident_whatsapp,
+    hangup_call,
+    forward_to_operator,
 )
 
 
@@ -305,24 +307,183 @@ def log_access_node(state: PorteroState) -> PorteroState:
 def deny_access_node(state: PorteroState) -> PorteroState:
     """
     Nodo: Denegar acceso cortésmente.
-    
+
     Flow:
     1. Marcar como denegado
     2. Informar al visitante
     3. Registrar evento
     """
     logger.warning(f"🚫 [DenyAccess] Acceso denegado")
-    
+
     state.access_granted = False
     state.current_step = VisitStep.ACCESO_DENEGADO
-    
+
     if not state.denial_reason:
         state.denial_reason = "No autorizado por el residente"
-        
+
     state.messages.append(AIMessage(
         content=f"Lo siento, no podemos autorizar su ingreso en este momento. {state.denial_reason}"
     ))
-    
+
     logger.info(f"Razón de denegación: {state.denial_reason}")
-    
+
     return state
+
+
+def hangup_node(state: PorteroState) -> PorteroState:
+    """
+    Nodo: Colgar la llamada al finalizar la conversación.
+
+    CRÍTICO: Este nodo DEBE ejecutarse al final de cada flujo para:
+    - Liberar recursos de la llamada
+    - Evitar consumo innecesario de tokens/minutos
+    - Cerrar la sesión correctamente
+
+    Flow:
+    1. Determinar razón del hangup según el estado
+    2. Ejecutar hangup
+    3. Marcar llamada como inactiva
+    """
+    logger.info(f"📴 [Hangup] Terminando llamada - Sesión: {state.session_id}")
+
+    # Determinar razón basada en el estado
+    if state.access_granted:
+        reason = "access_granted"
+        farewell = "Que tenga buen día. Hasta luego."
+    elif state.current_step == VisitStep.ACCESO_DENEGADO:
+        reason = "access_denied"
+        farewell = "Gracias por su visita. Hasta luego."
+    elif state.current_step == VisitStep.TRANSFIRIENDO_OPERADOR:
+        reason = "transferred"
+        farewell = "Lo comunico con un operador. Un momento por favor."
+    else:
+        reason = "conversation_completed"
+        farewell = "Hasta luego."
+
+    # Agregar mensaje de despedida
+    state.messages.append(AIMessage(content=farewell))
+
+    # Ejecutar hangup
+    hangup_result = hangup_call.invoke({
+        "session_id": state.session_id,
+        "reason": reason
+    })
+
+    # Actualizar estado
+    state.call_active = False
+    state.current_step = VisitStep.FINALIZADO
+
+    if hangup_result.get("success"):
+        logger.success(f"✅ Llamada terminada correctamente: {reason}")
+    else:
+        logger.error(f"❌ Error terminando llamada: {hangup_result.get('error')}")
+
+    return state
+
+
+def transfer_operator_node(state: PorteroState) -> PorteroState:
+    """
+    Nodo: Transferir la llamada a un operador humano (Human-in-the-Loop).
+
+    Se activa cuando:
+    - El residente no responde después del timeout
+    - El visitante solicita hablar con un humano
+    - Hay una situación que requiere intervención manual
+
+    Flow:
+    1. Notificar al visitante
+    2. Notificar al operador con contexto
+    3. Ejecutar transferencia SIP
+    4. Actualizar estado
+    """
+    logger.info(f"🔀 [TransferOperator] Transfiriendo a operador - Sesión: {state.session_id}")
+
+    state.current_step = VisitStep.TRANSFIRIENDO_OPERADOR
+
+    # Determinar razón de la transferencia
+    reason = "resident_timeout"  # Default
+    if hasattr(state, 'transfer_reason') and state.transfer_reason:
+        reason = state.transfer_reason
+
+    # Notificar al visitante
+    state.messages.append(AIMessage(
+        content="Un momento, lo comunico con un operador para asistirle personalmente."
+    ))
+
+    # Ejecutar transferencia
+    transfer_result = forward_to_operator.invoke({
+        "session_id": state.session_id,
+        "condominium_id": state.condominium_id,
+        "reason": reason,
+        "visitor_name": state.visitor_name,
+        "apartment": state.apartment,
+        "visitor_cedula": state.cedula
+    })
+
+    if transfer_result.get("transferred"):
+        logger.success(f"✅ Transferencia exitosa a: {transfer_result.get('operator_extension')}")
+        state.messages.append(AIMessage(
+            content=f"Transferido al operador. Por favor espere en línea."
+        ))
+    else:
+        logger.error(f"❌ Error en transferencia: {transfer_result.get('error')}")
+        # Fallback: al menos notificar al operador
+        state.messages.append(AIMessage(
+            content="No pudimos transferir la llamada, pero el operador ha sido notificado. "
+                    "Por favor espere o intente nuevamente más tarde."
+        ))
+
+    return state
+
+
+# ============================================
+# Funciones de routing para decisiones condicionales
+# ============================================
+
+def should_transfer_to_operator(state: PorteroState) -> bool:
+    """
+    Determina si se debe transferir a operador.
+
+    Returns:
+        True si se debe transferir
+    """
+    from datetime import datetime, timedelta
+    from src.config.settings import settings
+
+    # Si el visitante lo solicitó explícitamente
+    if hasattr(state, 'visitor_requested_operator') and state.visitor_requested_operator:
+        return True
+
+    # Si hay timeout esperando respuesta del residente
+    if state.current_step == VisitStep.ESPERANDO_AUTORIZACION:
+        if hasattr(state, 'notification_sent_at') and state.notification_sent_at:
+            elapsed = (datetime.now() - state.notification_sent_at).total_seconds()
+            if elapsed > settings.operator_timeout:
+                logger.info(f"⏰ Timeout de {settings.operator_timeout}s alcanzado")
+                return True
+
+    return False
+
+
+def route_after_resident_response(state: PorteroState) -> str:
+    """
+    Routing function: decide el siguiente nodo después de esperar respuesta del residente.
+
+    Returns:
+        Nombre del siguiente nodo: "open_gate", "deny_access", o "transfer_operator"
+    """
+    # Verificar si hay timeout primero
+    if should_transfer_to_operator(state):
+        return "transfer_operator"
+
+    # Verificar respuesta del residente
+    if state.resident_authorized is True:
+        state.access_granted = True
+        state.authorization_type = AuthorizationType.RESIDENTE
+        return "open_gate"
+    elif state.resident_authorized is False:
+        return "deny_access"
+
+    # Si aún no hay respuesta, seguir esperando (o ir a timeout)
+    # En un loop real, esto volvería a verificar el estado
+    return "notify_resident"  # Volver a esperar
