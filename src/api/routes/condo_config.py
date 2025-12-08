@@ -40,6 +40,12 @@ def get_default_config() -> CondoConfig:
     Retorna la configuracion por defecto desde settings.py.
     Usado cuando no hay configuracion especifica del condominio.
     """
+    # DEBUG: Log what we're reading from settings
+    logger.info(f"📋 SETTINGS DEBUG - get_default_config():")
+    logger.info(f"   evolution_api_url: {settings.evolution_api_url}")
+    logger.info(f"   evolution_api_key presente: {bool(settings.evolution_api_key)}")
+    logger.info(f"   evolution_instance_name: {settings.evolution_instance_name}")
+
     return CondoConfig(
         condominium_id="default-condo-id",
         name="Default Condominium",

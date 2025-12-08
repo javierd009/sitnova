@@ -1192,12 +1192,24 @@ async def notificar_residente(
         # Enviar por WhatsApp si está habilitado
         if notify_whatsapp and whatsapp_number:
             try:
+                # DEBUG: Mostrar configuración de Evolution ANTES de crear cliente
+                has_api_key = bool(condo_config.evolution_api_key)
+                will_use_mock = not has_api_key
+                logger.info(f"🔧 EVOLUTION CONFIG DEBUG:")
+                logger.info(f"   📡 URL: {condo_config.evolution_api_url}")
+                logger.info(f"   🔑 API Key presente: {has_api_key}")
+                logger.info(f"   📱 Instance: {condo_config.evolution_instance_name}")
+                logger.info(f"   🎭 Modo Mock: {will_use_mock}")
+
+                if will_use_mock:
+                    logger.warning(f"⚠️ EVOLUTION EN MODO MOCK - No se enviará WhatsApp real!")
+
                 # Crear cliente Evolution usando config del condominio (multi-tenant)
                 evolution = create_evolution_client(
                     base_url=condo_config.evolution_api_url,
                     api_key=condo_config.evolution_api_key,
                     instance_name=condo_config.evolution_instance_name,
-                    use_mock=(not condo_config.evolution_api_key)
+                    use_mock=will_use_mock
                 )
 
                 # Mensaje de notificación completo con TODOS los datos del visitante
