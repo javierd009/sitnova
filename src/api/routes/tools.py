@@ -297,7 +297,10 @@ def generate_phonetic_variations(text: str, max_variations: int = 5) -> List[str
 def fuzzy_match_name(query: str, candidates: List[str], threshold: float = 0.6) -> List[Tuple[str, float]]:
     """
     Busca coincidencias fuzzy entre un nombre y una lista de candidatos.
-    Ahora incluye variaciones fonéticas para mejor matching con speech-to-text.
+    Usa múltiples estrategias:
+    1. Variaciones fonéticas (ai↔ei, b↔v, etc.)
+    2. Spanish Metaphone (compara cómo suenan)
+    3. Fuzzy matching tradicional (Levenshtein)
 
     Returns:
         Lista de (nombre, score) ordenada por score descendente
@@ -307,6 +310,10 @@ def fuzzy_match_name(query: str, candidates: List[str], threshold: float = 0.6) 
     # Generar variaciones fonéticas del query
     query_variations = generate_phonetic_variations(query_normalized)
     logger.debug(f"🔄 Variaciones fonéticas de '{query_normalized}': {query_variations}")
+
+    # Obtener código Metaphone del query
+    query_metaphone = spanish_metaphone(query_normalized)
+    logger.debug(f"🔊 Código Metaphone de '{query_normalized}': {query_metaphone}")
 
     results = {}  # Usar dict para evitar duplicados, key=candidate, value=max_score
 
@@ -318,7 +325,21 @@ def fuzzy_match_name(query: str, candidates: List[str], threshold: float = 0.6) 
 
         best_ratio = 0.0
 
-        # Probar todas las combinaciones de variaciones
+        # ESTRATEGIA 1: Matching fonético con Metaphone (prioridad alta)
+        candidate_metaphone = spanish_metaphone(candidate_normalized)
+        if query_metaphone and candidate_metaphone:
+            if query_metaphone == candidate_metaphone:
+                # ¡Suenan igual! Score alto
+                best_ratio = 0.95
+                logger.debug(f"   🎯 Metaphone match: '{query_normalized}' = '{candidate_normalized}' ({query_metaphone})")
+            else:
+                # Similitud parcial de códigos fonéticos
+                metaphone_ratio = difflib.SequenceMatcher(None, query_metaphone, candidate_metaphone).ratio()
+                if metaphone_ratio > 0.7:
+                    # Bonus por similitud fonética
+                    best_ratio = max(best_ratio, metaphone_ratio * 0.85)
+
+        # ESTRATEGIA 2: Variaciones fonéticas tradicionales
         for q_var in query_variations:
             for c_var in candidate_variations:
                 # Calcular similitud
@@ -336,6 +357,20 @@ def fuzzy_match_name(query: str, candidates: List[str], threshold: float = 0.6) 
                 if ratio > best_ratio:
                     best_ratio = ratio
 
+        # ESTRATEGIA 3: Match por palabras individuales (para nombres compuestos)
+        query_words = query_normalized.split()
+        candidate_words = candidate_normalized.split()
+        for qw in query_words:
+            if len(qw) >= 3:  # Solo palabras significativas
+                for cw in candidate_words:
+                    if len(cw) >= 3:
+                        # Match exacto de palabra
+                        if qw == cw:
+                            best_ratio = max(best_ratio, 0.9)
+                        # Match fonético de palabra
+                        elif spanish_metaphone(qw) == spanish_metaphone(cw):
+                            best_ratio = max(best_ratio, 0.85)
+
         # Si supera el threshold, guardar
         if best_ratio >= threshold:
             # Si ya existe, mantener el mejor score
@@ -349,6 +384,249 @@ def fuzzy_match_name(query: str, candidates: List[str], threshold: float = 0.6) 
     return sorted_results
 
 
+def spanish_metaphone(word: str) -> str:
+    """
+    Genera un código fonético para español usando un algoritmo tipo Metaphone.
+
+    Este algoritmo transforma palabras a su representación fonética,
+    permitiendo que nombres que suenan igual se comparen correctamente.
+
+    Ejemplos:
+        "Deisy" → "DSI"
+        "Daisy" → "DSI"  (mismo código!)
+        "Deci" → "DSI"   (mismo código!)
+        "Colorado" → "KLRD"
+        "Colorado" = "Kolorado" → mismo código
+
+    Reglas principales del español:
+    - Vocales al inicio se mantienen, las demás se omiten (excepto para semejanza)
+    - H siempre muda
+    - B y V suenan igual
+    - C + (e,i) = S; C + (a,o,u) = K
+    - G + (e,i) = J; G + (a,o,u) = G
+    - LL = Y
+    - Ñ = NI
+    - QU = K
+    - Z = S
+    - RR = R
+    """
+    if not word:
+        return ""
+
+    # Normalizar: minúsculas, sin acentos
+    word = normalize_text(word.lower().strip())
+
+    # Remover caracteres no alfabéticos
+    word = ''.join(c for c in word if c.isalpha())
+
+    if not word:
+        return ""
+
+    result = []
+    i = 0
+    length = len(word)
+
+    # La primera letra se mantiene (si es vocal o consonante)
+    first_char = word[0]
+    if first_char in 'aeiou':
+        result.append(first_char.upper())
+    elif first_char == 'h':
+        # H muda al inicio - usar la siguiente letra
+        if length > 1:
+            if word[1] in 'aeiou':
+                result.append(word[1].upper())
+            else:
+                result.append(word[1].upper())
+        i = 1
+    else:
+        result.append(first_char.upper())
+
+    i = 1 if i == 0 else i + 1
+
+    while i < length:
+        c = word[i]
+
+        # Saltar vocales (excepto primera)
+        if c in 'aeiou':
+            i += 1
+            continue
+
+        # H siempre muda
+        if c == 'h':
+            i += 1
+            continue
+
+        # B y V suenan igual
+        if c in 'bv':
+            if not result or result[-1] != 'B':
+                result.append('B')
+            i += 1
+            continue
+
+        # C - depende de la siguiente vocal
+        if c == 'c':
+            if i + 1 < length:
+                next_c = word[i + 1]
+                if next_c in 'ei':
+                    # C + e/i = S (como "cien" = "sien")
+                    if not result or result[-1] != 'S':
+                        result.append('S')
+                elif next_c == 'h':
+                    # CH = CH (sonido único)
+                    if not result or result[-1] != 'CH':
+                        result.append('CH')
+                    i += 1
+                else:
+                    # C + a/o/u = K
+                    if not result or result[-1] != 'K':
+                        result.append('K')
+            else:
+                if not result or result[-1] != 'K':
+                    result.append('K')
+            i += 1
+            continue
+
+        # G - depende de la siguiente vocal
+        if c == 'g':
+            if i + 1 < length:
+                next_c = word[i + 1]
+                if next_c in 'ei':
+                    # G + e/i = J (como "gente" = "jente")
+                    if not result or result[-1] != 'J':
+                        result.append('J')
+                elif next_c == 'u' and i + 2 < length and word[i + 2] in 'ei':
+                    # GU + e/i = G (como "guerra")
+                    if not result or result[-1] != 'G':
+                        result.append('G')
+                    i += 1  # Saltar la U
+                else:
+                    if not result or result[-1] != 'G':
+                        result.append('G')
+            else:
+                if not result or result[-1] != 'G':
+                    result.append('G')
+            i += 1
+            continue
+
+        # J siempre = J
+        if c == 'j':
+            if not result or result[-1] != 'J':
+                result.append('J')
+            i += 1
+            continue
+
+        # K = K
+        if c == 'k':
+            if not result or result[-1] != 'K':
+                result.append('K')
+            i += 1
+            continue
+
+        # LL = Y
+        if c == 'l':
+            if i + 1 < length and word[i + 1] == 'l':
+                if not result or result[-1] != 'Y':
+                    result.append('Y')
+                i += 2
+                continue
+            else:
+                if not result or result[-1] != 'L':
+                    result.append('L')
+                i += 1
+                continue
+
+        # Ñ = NI (aproximación)
+        if c == 'ñ':
+            if not result or result[-1] != 'N':
+                result.append('N')
+            i += 1
+            continue
+
+        # QU = K
+        if c == 'q':
+            if i + 1 < length and word[i + 1] == 'u':
+                if not result or result[-1] != 'K':
+                    result.append('K')
+                i += 2
+                continue
+            else:
+                if not result or result[-1] != 'K':
+                    result.append('K')
+                i += 1
+                continue
+
+        # RR = R (simplificar dobles)
+        if c == 'r':
+            if i + 1 < length and word[i + 1] == 'r':
+                if not result or result[-1] != 'R':
+                    result.append('R')
+                i += 2
+                continue
+            else:
+                if not result or result[-1] != 'R':
+                    result.append('R')
+                i += 1
+                continue
+
+        # S y Z suenan igual en Latinoamérica
+        if c in 'sz':
+            if not result or result[-1] != 'S':
+                result.append('S')
+            i += 1
+            continue
+
+        # X = KS o S (simplificar a S)
+        if c == 'x':
+            if not result or result[-1] != 'S':
+                result.append('S')
+            i += 1
+            continue
+
+        # Y = I/Y (consonante)
+        if c == 'y':
+            if not result or result[-1] != 'Y':
+                result.append('Y')
+            i += 1
+            continue
+
+        # W = U (poco común en español)
+        if c == 'w':
+            if not result or result[-1] != 'U':
+                result.append('U')
+            i += 1
+            continue
+
+        # Otras consonantes (d, f, m, n, p, t)
+        upper_c = c.upper()
+        if not result or result[-1] != upper_c:
+            result.append(upper_c)
+        i += 1
+
+    return ''.join(result)
+
+
+def phonetic_match_score(query: str, candidate: str) -> float:
+    """
+    Calcula un score de similitud fonética entre dos palabras.
+    Usa el algoritmo Spanish Metaphone para comparar cómo suenan.
+
+    Returns:
+        float entre 0.0 (sin similitud) y 1.0 (idénticos fonéticamente)
+    """
+    query_metaphone = spanish_metaphone(query)
+    candidate_metaphone = spanish_metaphone(candidate)
+
+    if not query_metaphone or not candidate_metaphone:
+        return 0.0
+
+    # Si los códigos fonéticos son idénticos, es un match perfecto
+    if query_metaphone == candidate_metaphone:
+        return 1.0
+
+    # Calcular similitud entre códigos fonéticos
+    return difflib.SequenceMatcher(None, query_metaphone, candidate_metaphone).ratio()
+
+
 def suggest_similar_surnames(query: str, threshold: float = 0.5) -> List[str]:
     """Sugiere apellidos similares al query basado en apellidos comunes."""
     query_normalized = normalize_text(query.lower().strip())
@@ -360,7 +638,18 @@ def suggest_similar_surnames(query: str, threshold: float = 0.5) -> List[str]:
 
     # Buscar coincidencias fuzzy en apellidos comunes
     matches = difflib.get_close_matches(query_normalized, APELLIDOS_COMUNES, n=3, cutoff=threshold)
-    return [m.title() for m in matches]
+
+    # También buscar por similitud fonética
+    query_metaphone = spanish_metaphone(query_normalized)
+    phonetic_matches = []
+    for apellido in APELLIDOS_COMUNES:
+        if spanish_metaphone(apellido) == query_metaphone:
+            if apellido not in matches:
+                phonetic_matches.append(apellido)
+
+    # Combinar resultados
+    all_matches = list(matches) + phonetic_matches[:2]
+    return [m.title() for m in all_matches[:5]]
 
 
 def is_valid_name(name: str) -> bool:
