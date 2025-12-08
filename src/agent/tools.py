@@ -266,34 +266,42 @@ def log_access_event(
     cedula: Optional[str] = None,
     visitor_name: Optional[str] = None,
     resident_id: Optional[str] = None,
+    resident_name: Optional[str] = None,
+    apartment: Optional[str] = None,
+    visit_reason: Optional[str] = None,
     gate_opened: bool = False,
     decision_reason: Optional[str] = None,
     decision_method: Optional[str] = None,
     cedula_photo_url: Optional[str] = None,
     vehicle_photo_url: Optional[str] = None,
-    access_point: Optional[str] = "Entrada Principal"
+    access_point: Optional[str] = "Entrada Principal",
+    call_duration_seconds: Optional[int] = None
 ) -> Dict[str, Any]:
     """
-    Registra un evento de acceso en la base de datos.
+    Registra un evento de acceso en la base de datos (access_logs y bitacora_accesos).
 
     Args:
         condominium_id: UUID del condominio
         entry_type: Tipo de entrada ("vehicle", "intercom", "pedestrian", "emergency")
-        access_decision: Decisión ("authorized", "denied", "pending", "cancelled")
+        access_decision: Decisión ("authorized", "denied", "pending", "cancelled", "timeout", "transferred")
         direction: Dirección del movimiento ("entry" = entrada, "exit" = salida)
         plate: Placa del vehículo (opcional)
         cedula: Número de cédula del visitante (opcional)
         visitor_name: Nombre del visitante (opcional)
         resident_id: UUID del residente (opcional)
+        resident_name: Nombre del residente visitado (opcional)
+        apartment: Apartamento/casa del residente (opcional)
+        visit_reason: Motivo de la visita (opcional)
         gate_opened: Si el portón se abrió
         decision_reason: Razón de la decisión (opcional)
-        decision_method: Método de decisión ("auto_vehicle", "auto_pre_authorized", "resident_approved", etc.)
+        decision_method: Método de decisión ("auto_vehicle", "auto_pre_authorized", "resident_approved", "whatsapp", etc.)
         cedula_photo_url: URL de foto de cédula (opcional)
         vehicle_photo_url: URL de foto de vehículo (opcional)
         access_point: Punto de acceso (default: "Entrada Principal")
+        call_duration_seconds: Duración de la llamada en segundos (opcional)
 
     Returns:
-        dict con: success (bool), log_id, timestamp
+        dict con: success (bool), log_id, bitacora_id, timestamp
     """
     logger.info(f"📝 Registrando evento de acceso: {entry_type} - {access_decision}")
 
@@ -312,31 +320,77 @@ def log_access_event(
             return {
                 "success": True,
                 "log_id": "mock-log-123",
+                "bitacora_id": "mock-bitacora-123",
                 "timestamp": datetime.now().isoformat()
             }
 
-        # Campos mínimos que existen en el schema de producción
+        # 1. Guardar en access_logs (tabla técnica)
         log_data = {
             "condominium_id": condominium_id,
             "entry_type": entry_type,
-            "direction": direction,  # 'entry' o 'exit'
+            "direction": direction,
             "access_decision": access_decision,
             "license_plate": plate,
             "gate_opened": gate_opened,
-            # Nota: muchas columnas del schema original no existen en producción
         }
-
-        # Remover None values para evitar errores
         log_data = {k: v for k, v in log_data.items() if v is not None}
 
         result = supabase.table("access_logs").insert(log_data).execute()
+        log_id = result.data[0]["id"] if result.data else None
+        timestamp = result.data[0]["timestamp"] if result.data else datetime.now().isoformat()
 
-        logger.success(f"✅ Evento registrado: {result.data[0]['id']}")
+        logger.success(f"✅ access_logs registrado: {log_id}")
+
+        # 2. Guardar en bitacora_accesos (tabla para dashboard)
+        # Mapear access_decision a access_result (español)
+        access_result_map = {
+            "authorized": "autorizado",
+            "denied": "denegado",
+            "pending": "pre_autorizado",
+            "pre_authorized": "pre_autorizado",
+            "timeout": "timeout",
+            "transferred": "transferido",
+            "cancelled": "denegado",
+            "error": "error",
+        }
+        access_result = access_result_map.get(access_decision, access_decision)
+
+        # Mapear entry_type a visitor_type
+        visitor_type_map = {
+            "vehicle": "vehiculo",
+            "intercom": "persona",
+            "pedestrian": "persona",
+            "delivery": "delivery",
+            "service": "servicio",
+            "emergency": "otro",
+        }
+        visitor_type = visitor_type_map.get(entry_type, "persona")
+
+        bitacora_data = {
+            "condominium_id": condominium_id,
+            "visitor_name": visitor_name,
+            "visitor_cedula": cedula,
+            "visitor_type": visitor_type,
+            "vehicle_plate": plate,
+            "resident_name": resident_name,
+            "apartment": apartment,
+            "visit_reason": visit_reason,
+            "access_result": access_result,
+            "authorization_method": decision_method,
+            "call_duration_seconds": call_duration_seconds,
+        }
+        bitacora_data = {k: v for k, v in bitacora_data.items() if v is not None}
+
+        bitacora_result = supabase.table("bitacora_accesos").insert(bitacora_data).execute()
+        bitacora_id = bitacora_result.data[0]["id"] if bitacora_result.data else None
+
+        logger.success(f"✅ bitacora_accesos registrado: {bitacora_id}")
 
         return {
             "success": True,
-            "log_id": result.data[0]["id"],
-            "timestamp": result.data[0]["timestamp"]
+            "log_id": log_id,
+            "bitacora_id": bitacora_id,
+            "timestamp": timestamp
         }
 
     except Exception as e:
