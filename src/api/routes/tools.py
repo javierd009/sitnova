@@ -455,25 +455,81 @@ async def verificar_visitante(
         # Filtrar por nombre o cedula
         if visitor_cedula and visitor_cedula != "null":
             query = query.eq("cedula", visitor_cedula)
+            result = query.execute()
         elif visitor_nombre:
             # Normalize name to remove accents for matching
-            nombre_normalizado = normalize_text(visitor_nombre)
-            logger.info(f"Buscando nombre normalizado: {nombre_normalizado}")
+            nombre_normalizado = normalize_text(visitor_nombre).lower().strip()
+            logger.info(f"🔍 Verificando pre-auth para nombre: '{nombre_normalizado}'")
 
-            # Buscar por primer nombre para mayor flexibilidad con speech-to-text
-            primer_nombre = nombre_normalizado.split()[0] if nombre_normalizado else ""
-            logger.info(f"Buscando por primer nombre: {primer_nombre}")
-            query = query.ilike("visitor_name", f"%{primer_nombre}%")
+            # BÚSQUEDA ESTRICTA: Obtener todos los pre-autorizados y comparar
+            # No usar ilike parcial porque causa falsos positivos
+            result = query.execute()
 
-        result = query.execute()
+            # Filtrar manualmente con coincidencia más estricta
+            matches_exactos = []
+            matches_parciales = []
+
+            for preauth in result.data or []:
+                nombre_preauth = normalize_text(preauth.get("visitor_name", "")).lower().strip()
+
+                # Match exacto (nombre completo coincide)
+                if nombre_normalizado == nombre_preauth:
+                    logger.info(f"   ✅ Match EXACTO: '{nombre_preauth}'")
+                    matches_exactos.append(preauth)
+                    continue
+
+                # Match parcial: todos los términos del visitante están en el pre-autorizado
+                # Ej: "Matías" está en "Matías Quintero"
+                terminos_visitante = nombre_normalizado.split()
+                terminos_preauth = nombre_preauth.split()
+
+                # Verificar que TODOS los términos del visitante están en el pre-autorizado
+                all_match = True
+                for termino in terminos_visitante:
+                    if len(termino) < 3:  # Ignorar términos muy cortos
+                        continue
+                    found = False
+                    for t_preauth in terminos_preauth:
+                        # Coincidencia exacta o muy similar (90%+)
+                        if termino == t_preauth or (len(termino) >= 4 and termino in t_preauth):
+                            found = True
+                            break
+                    if not found:
+                        all_match = False
+                        break
+
+                if all_match and len(terminos_visitante) > 0:
+                    logger.info(f"   ⚠️ Match PARCIAL: visitante='{nombre_normalizado}' -> preauth='{nombre_preauth}'")
+                    matches_parciales.append(preauth)
+
+            # Priorizar matches exactos, luego parciales
+            if matches_exactos:
+                result = type('obj', (object,), {'data': matches_exactos})()
+                logger.info(f"   📌 Usando {len(matches_exactos)} match(es) exacto(s)")
+            elif matches_parciales:
+                result = type('obj', (object,), {'data': matches_parciales})()
+                logger.info(f"   📌 Usando {len(matches_parciales)} match(es) parcial(es)")
+            else:
+                result = type('obj', (object,), {'data': []})()
+                logger.info(f"   ❌ NO hay matches para '{nombre_normalizado}'")
+        else:
+            # Sin nombre ni cédula, no se puede verificar
+            logger.warning("⚠️ verificar-preautorizacion llamado sin nombre ni cédula")
+            return {
+                "autorizado": False,
+                "mensaje": "Se requiere nombre o cédula para verificar pre-autorización.",
+                "residente_nombre": None,
+                "apartamento": None,
+            }
 
         if result.data and len(result.data) > 0:
             visitor = result.data[0]
             resident = visitor.get("residents", {})
-            logger.info(f"Visitante PRE-AUTORIZADO encontrado: {visitor.get('visitor_name')}")
+            nombre_autorizado = visitor.get('visitor_name')
+            logger.info(f"✅ Visitante PRE-AUTORIZADO: '{nombre_autorizado}'")
             return {
                 "autorizado": True,
-                "mensaje": f"El visitante {visitor.get('visitor_name')} tiene pre-autorizacion vigente",
+                "mensaje": f"El visitante {nombre_autorizado} tiene pre-autorizacion vigente",
                 "residente_nombre": resident.get("full_name") if resident else None,
                 "apartamento": resident.get("apartment") if resident else None,
             }
@@ -1531,9 +1587,14 @@ async def transferir_operador(
 async def obtener_direccion(
     request: Request,
     apartamento: Optional[str] = Query(None, description="Numero de casa o apartamento"),
+    nombre: Optional[str] = Query(None, description="Nombre del residente"),
 ):
     """
     Obtiene las instrucciones de direccion de un residente.
+
+    Acepta búsqueda por:
+    - apartamento: Número de casa (ej: "casa 10", "10")
+    - nombre: Nombre del residente (ej: "María González")
 
     Usar cuando el visitante pregunta como llegar a la casa
     despues de que el residente autorizo el acceso.
@@ -1541,22 +1602,26 @@ async def obtener_direccion(
     body = await log_request(request, "/obtener-direccion")
 
     apt = body.get("apartamento") or apartamento
+    nombre_buscar = body.get("nombre") or nombre
 
-    if not apt:
+    if not apt and not nombre_buscar:
         return JSONResponse(
             content={
                 "encontrado": False,
                 "direccion": None,
-                "result": "Necesito el numero de casa para buscar las indicaciones.",
+                "result": "Necesito el numero de casa o nombre del residente para buscar las indicaciones.",
             },
             headers=ULTRAVOX_HEADERS
         )
 
-    # Normalizar apartamento - extraer solo el número
-    apt_lower = apt.lower().strip()
-    apt_number = ''.join(filter(str.isdigit, apt_lower))
+    # Normalizar apartamento si existe
+    apt_lower = apt.lower().strip() if apt else ""
+    apt_number = ''.join(filter(str.isdigit, apt_lower)) if apt_lower else ""
 
-    logger.info(f"📍 Buscando direccion para: {apt} (numero: {apt_number})")
+    # Normalizar nombre si existe
+    nombre_normalizado = normalize_text(nombre_buscar).lower().strip() if nombre_buscar else ""
+
+    logger.info(f"📍 Buscando direccion para: apt='{apt}' (num={apt_number}), nombre='{nombre_normalizado}'")
 
     try:
         supabase = get_supabase()
@@ -1569,22 +1634,45 @@ async def obtener_direccion(
             resident = None
 
             if all_residents.data:
-                # Buscar match exacto por número de apartamento
-                for r in all_residents.data:
-                    r_apt = r.get("apartment", "").lower()
-                    r_number = ''.join(filter(str.isdigit, r_apt))
+                # PRIORIDAD 1: Buscar por número de apartamento
+                if apt_number:
+                    for r in all_residents.data:
+                        r_apt = r.get("apartment", "").lower()
+                        r_number = ''.join(filter(str.isdigit, r_apt))
 
-                    # Match exacto por número
-                    if apt_number and r_number == apt_number:
-                        resident = r
-                        logger.info(f"✅ Match exacto por número: {r_apt}")
-                        break
+                        # Match exacto por número
+                        if r_number == apt_number:
+                            resident = r
+                            logger.info(f"✅ Match por número de casa: {r_apt}")
+                            break
 
-                    # Match exacto por texto completo
-                    if apt_lower in r_apt or r_apt in apt_lower:
-                        resident = r
-                        logger.info(f"✅ Match por texto: {r_apt}")
-                        break
+                # PRIORIDAD 2: Buscar por texto de apartamento
+                if not resident and apt_lower:
+                    for r in all_residents.data:
+                        r_apt = r.get("apartment", "").lower()
+                        if apt_lower in r_apt or r_apt in apt_lower:
+                            resident = r
+                            logger.info(f"✅ Match por texto de apartamento: {r_apt}")
+                            break
+
+                # PRIORIDAD 3: Buscar por nombre del residente
+                if not resident and nombre_normalizado:
+                    for r in all_residents.data:
+                        r_name = normalize_text(r.get("full_name", "")).lower()
+                        # Match si el nombre buscado está contenido en el nombre completo
+                        # o viceversa
+                        if nombre_normalizado in r_name or r_name in nombre_normalizado:
+                            resident = r
+                            logger.info(f"✅ Match por nombre: {r.get('full_name')}")
+                            break
+
+                        # Match parcial: todos los términos del nombre buscado están en el nombre del residente
+                        terminos_buscar = nombre_normalizado.split()
+                        terminos_nombre = r_name.split()
+                        if all(any(t in tn for tn in terminos_nombre) for t in terminos_buscar if len(t) >= 3):
+                            resident = r
+                            logger.info(f"✅ Match parcial por nombre: {r.get('full_name')}")
+                            break
 
             if resident:
                 direccion = resident.get("address_instructions") or resident.get("address")

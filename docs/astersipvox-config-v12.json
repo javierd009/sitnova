@@ -150,14 +150,23 @@
         "timeout": "3s"
       },
       {
-        "description": "Obtiene instrucciones para llegar a la casa.",
+        "description": "Obtiene instrucciones para llegar a la casa. Puede buscar por apartamento O por nombre del residente.",
         "dynamicParameters": [
           {
             "location": "PARAMETER_LOCATION_BODY",
             "name": "apartamento",
-            "required": true,
+            "required": false,
             "schema": {
-              "description": "Casa del residente",
+              "description": "Numero de casa (ej: 10, casa 10)",
+              "type": "string"
+            }
+          },
+          {
+            "location": "PARAMETER_LOCATION_BODY",
+            "name": "nombre",
+            "required": false,
+            "schema": {
+              "description": "Nombre del residente (ej: Maria Gonzalez)",
               "type": "string"
             }
           }
